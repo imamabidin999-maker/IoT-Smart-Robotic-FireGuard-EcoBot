@@ -1,0 +1,15 @@
+{
+  "name": "kopak-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pengujian dashboard (Playwright + robot palsu) dan firmware Uno (di PC)",
+  "type": "module",
+  "scripts": {
+    "test": "node --test e2e/dashboard.e2e.mjs firmware-host/firmware.test.mjs",
+    "test:e2e": "node --test e2e/dashboard.e2e.mjs",
+    "test:firmware": "node --test firmware-host/firmware.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.50.0"
+  }
+}
