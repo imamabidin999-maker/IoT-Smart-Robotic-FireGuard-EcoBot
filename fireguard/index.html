@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2320252A'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23FF5D3A'/%3E%3C/svg%3E">
+<title>Dashboard Kontrol — FireGuard Smart Robot</title>
+<!--
+  FireGuard — dashboard kontrol & pemantauan robot pemadam api.
+  Tidak ada CDN: font, library MQTT, dan semua script ada di folder ../shared,
+  jadi halaman ini jalan di jaringan WiFi robot yang tidak punya internet.
+  Bisa dibuka langsung (double-click) atau lewat server statis biasa.
+-->
+<link rel="stylesheet" href="../shared/css/fonts.css">
+<link rel="stylesheet" href="../shared/css/kopak.css">
+<link rel="stylesheet" href="fireguard.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2c1.4 3.6-2.2 5-2.2 8.4a4.2 4.2 0 1 0 8.4 0c0-1.3-.6-2.5-1.3-3.3.5 2-.6 3.3-2 3.3-1.8 0-2.1-2-1.1-3.8C14.9 5.1 13 2 12 2Z"/><path d="M8.8 17.3a3.2 3.2 0 0 0 6.4 0c0-1.5-1-2.2-1.6-3.1-.2 1-1 1.3-1.6.5"/></svg>
+        </div>
+        <div>
+          <h1 class="brand-name" style="margin:0">FireGuard</h1>
+          <div class="brand-sub">Smart Robot — Unit Pemadam Kebakaran</div>
+        </div>
+      </div>
+      <div class="status-group">
+        <span class="demo-chip" id="demoChip" hidden>DEMO · DATA SIMULASI</span>
+        <div class="status-item" role="status" aria-live="polite">
+          <span class="status-dot" id="connDot" data-state="offline"></span>
+          <span id="connText">Terputus</span>
+        </div>
+        <div class="status-item" title="Baterai robot">
+          <svg width="19" height="11" viewBox="0 0 20 11" fill="none" aria-hidden="true"><rect x="0.75" y="0.75" width="16" height="9.5" rx="2.25" stroke="#838C96" stroke-width="1.1"/><rect x="17.3" y="3.5" width="1.8" height="4" rx="0.9" fill="#838C96"/><rect id="batFill" x="2.3" y="2.3" width="0" height="6.4" rx="1" fill="#2FD9A8"/></svg>
+          <span id="batText">—</span>
+        </div>
+        <div class="status-item mono hide-sm" id="clock">00:00:00</div>
+        <a class="icon-btn" href="../index.html" title="Pilih robot" aria-label="Kembali ke pilihan robot">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 10 9-7 9 7"/><path d="M5 9v11h14V9"/></svg>
+        </a>
+        <button type="button" class="icon-btn" id="btnSettings" title="Pengaturan koneksi" aria-label="Pengaturan koneksi">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+        </button>
+        <button type="button" class="estop-btn" id="btnEstop" title="Berhenti darurat (tombol Spasi)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="7.9 2 16.1 2 22 7.9 22 16.1 16.1 22 7.9 22 2 16.1 2 7.9"/><path d="M8 8l8 8"/><path d="M16 8l-8 8"/></svg>
+          <span>STOP</span><span class="estop-key">Spasi</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="alert-stack" id="alertStack"></div>
+
+  <main class="content">
+    <div class="board">
+
+      <!-- Kolom kiri -->
+      <div class="col">
+
+        <!-- A: Kontrol Pergerakan -->
+        <section class="card" id="cardMovement" aria-labelledby="ttlMove">
+          <h2 class="card-title" id="ttlMove">Kontrol Pergerakan</h2>
+
+          <div class="mode-toggle" role="group" aria-label="Mode operasi">
+            <button type="button" class="mode-btn" id="btnAuto" aria-pressed="false">Otomatis</button>
+            <button type="button" class="mode-btn" id="btnManual" aria-pressed="false">Manual</button>
+          </div>
+
+          <div class="joystick-wrap">
+            <div class="joystick-base disabled" id="joyBase" role="application" aria-label="Joystick. Di mode manual, gunakan tombol W A S D atau panah.">
+              <div class="joystick-guide-v"></div>
+              <div class="joystick-guide-h"></div>
+              <div class="joystick-knob" id="joyKnob"></div>
+            </div>
+            <div class="joystick-readout">
+              <div>Status: <span id="dirLabel">Tidak terhubung</span></div>
+              <div class="mono muted" id="intensityLabel">Intensitas 0%</div>
+              <div class="key-hint">Mode manual: WASD / panah · Spasi = berhenti</div>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div>
+            <div class="meter-label"><span>Kecepatan Motor</span><span class="mono" id="speedValue">0/255</span></div>
+            <div class="meter-track"><div class="meter-fill" id="speedFill"></div></div>
+          </div>
+
+          <div class="slider-row">
+            <div class="meter-label" style="margin-bottom:0"><label for="speedCap">Batas kecepatan</label><span class="mono" id="speedCapValue">160</span></div>
+            <input type="range" class="range" id="speedCap" min="60" max="255" step="5" value="160">
+          </div>
+        </section>
+
+        <!-- E: Pompa air -->
+        <section class="card" id="cardActuator" aria-labelledby="ttlPump">
+          <div class="card-title-row">
+            <h2 class="card-title" id="ttlPump">Pompa Air / Extinguisher</h2>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#A6AFB8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5c3.5 4.5 7 8.2 7 12a7 7 0 1 1-14 0c0-3.8 3.5-7.5 7-12Z"/></svg>
+          </div>
+
+          <div class="state-box" id="pumpBox" data-status="off">
+            <div class="state-box-text mono" id="pumpText">OFFLINE</div>
+          </div>
+
+          <button type="button" class="act-btn" id="pumpBtn" disabled>Nonaktif — Aktifkan Mode Manual</button>
+
+          <div class="slider-row">
+            <div class="meter-label" style="margin-bottom:0"><label for="nozSlider">Arah nozzle (servo)</label><span class="mono" id="nozAngle">—</span></div>
+            <input type="range" class="range" id="nozSlider" min="40" max="140" step="1" value="90" disabled>
+          </div>
+
+          <div class="kv-row"><span>Status robot</span><span class="mono" id="robotState">—</span></div>
+        </section>
+
+      </div>
+
+      <!-- Kolom tengah -->
+      <div class="col">
+
+        <!-- B: Live feed -->
+        <section class="card card-pad-sm" id="cardFeed" aria-label="Kamera robot">
+          <div class="viewport" id="camViewport" data-state="none">
+            <img data-cam="img" alt="Tampilan langsung kamera FireGuard" hidden>
+            <canvas data-cam="sim" aria-label="Tampilan kamera simulasi" hidden></canvas>
+            <div class="viewport-placeholder" data-cam="placeholder">
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#838C96" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              <span data-cam="ph-title">Kamera belum diatur</span>
+              <span class="ph-sub" data-cam="ph-sub"></span>
+            </div>
+            <div class="viewport-live"><span class="rec-dot"></span><span data-cam="live-text">OFFLINE</span></div>
+            <div class="viewport-tools">
+              <button type="button" class="icon-btn" data-cam="lamp" aria-pressed="false" title="Lampu kamera" aria-label="Lampu kamera">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6"/><path d="M10 21h4"/><path d="M12 3a6 6 0 0 0-4 10.5c.8.8 1 1.5 1 2.5h6c0-1 .2-1.7 1-2.5A6 6 0 0 0 12 3Z"/></svg>
+              </button>
+              <button type="button" class="icon-btn" data-cam="snap" title="Simpan snapshot" aria-label="Simpan snapshot">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+              </button>
+              <button type="button" class="icon-btn" data-cam="full" title="Layar penuh" aria-label="Layar penuh">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+              </button>
+            </div>
+            <select class="viewport-quality" data-cam="quality" aria-label="Resolusi kamera" hidden>
+              <option value="qvga">QVGA 320×240</option>
+              <option value="vga" selected>VGA 640×480</option>
+              <option value="svga">SVGA 800×600</option>
+            </select>
+            <div class="viewport-res" data-cam="res">—</div>
+          </div>
+        </section>
+
+        <!-- H: Grafik -->
+        <section class="card" id="cardChart" aria-labelledby="ttlChart">
+          <div class="card-title-row">
+            <h2 class="card-title" id="ttlChart">Riwayat Sensor</h2>
+            <div class="card-tools">
+              <button type="button" class="text-btn" id="tabFlame" aria-pressed="true">Api</button>
+              <button type="button" class="text-btn" id="tabGas" aria-pressed="false">Gas</button>
+            </div>
+          </div>
+          <div id="chartMount"></div>
+          <div class="card-title-row">
+            <div class="card-tools">
+              <button type="button" class="text-btn" id="win60" aria-pressed="true">1 menit</button>
+              <button type="button" class="text-btn" id="win300" aria-pressed="false">5 menit</button>
+            </div>
+            <div class="card-tools">
+              <button type="button" class="text-btn" id="btnTable" aria-pressed="false">Tabel</button>
+              <button type="button" class="text-btn" id="btnCsv">Unduh CSV</button>
+            </div>
+          </div>
+          <div class="sensor-note" id="chartNote">Nilai sensor api adalah ADC 0–1023: makin kecil berarti api makin dekat/kuat.</div>
+        </section>
+
+      </div>
+
+      <!-- Kolom kanan -->
+      <div class="col">
+
+        <!-- D: Sensor -->
+        <section class="card" id="cardSensors" aria-labelledby="ttlSensors">
+          <h2 class="card-title" id="ttlSensors">Deteksi Api</h2>
+          <div class="sensor-list tiles" id="flameList"></div>
+          <div class="card-sub" id="gasSub">Gas &amp; Asap</div>
+          <div class="sensor-list tiles" id="gasList"></div>
+          <div class="sensor-note" id="sensorNote" hidden></div>
+        </section>
+
+        <!-- C: Log -->
+        <section class="card" id="cardLog" aria-labelledby="ttlLog">
+          <div class="card-title-row">
+            <h2 class="card-title" id="ttlLog">Aktivitas Terbaru</h2>
+            <div class="card-tools">
+              <button type="button" class="text-btn" id="btnLogExport">CSV</button>
+              <button type="button" class="text-btn" id="btnLogClear">Bersihkan</button>
+            </div>
+          </div>
+          <div class="log-list" id="logList" tabindex="0" role="log" aria-label="Riwayat aktivitas"></div>
+        </section>
+
+        <!-- S: Status sistem -->
+        <section class="card" id="cardSystem" aria-labelledby="ttlSys">
+          <h2 class="card-title" id="ttlSys">Status Sistem</h2>
+          <dl class="sys-grid">
+            <dt>Koneksi</dt><dd id="sysConn">—</dd>
+            <dt>Latensi</dt><dd id="sysRtt">—</dd>
+            <dt>Sinyal WiFi</dt><dd id="sysRssi">—</dd>
+            <dt>Alamat</dt><dd id="sysIp">—</dd>
+            <dt>Robot aktif</dt><dd id="sysUptime">—</dd>
+            <dt>Firmware</dt><dd id="sysFw">—</dd>
+            <dt>Baterai</dt><dd id="sysBat">—</dd>
+          </dl>
+        </section>
+
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+      <span>FireGuard · Praktikum IoT — Topik Smart Robot</span>
+      <span class="mono">Arduino Uno · ESP32 · ESP32-CAM · L298N</span>
+    </div>
+  </footer>
+
+<script src="../shared/vendor/mqtt.min.js"></script>
+<script src="../shared/js/util.js"></script>
+<script src="../shared/js/link.js"></script>
+<script src="../shared/js/controls.js"></script>
+<script src="../shared/js/camera.js"></script>
+<script src="../shared/js/chart.js"></script>
+<script src="../shared/js/activity-log.js"></script>
+<script src="../shared/js/alarm.js"></script>
+<script src="../shared/js/settings.js"></script>
+<script src="../shared/js/dashboard.js"></script>
+<script src="../shared/js/sim-core.js"></script>
+<script src="sim.js"></script>
+<script src="fireguard.js"></script>
+</body>
+</html>

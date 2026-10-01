@@ -1,0 +1,16 @@
+{
+  "name": "kopak-mock-robot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Robot palsu (WebSocket + MQTT + kamera MJPEG) untuk mencoba dan menguji dashboard tanpa hardware",
+  "main": "index.js",
+  "scripts": {
+    "fireguard": "node index.js fireguard",
+    "ecobot": "node index.js ecobot"
+  },
+  "dependencies": {
+    "aedes": "^0.51.3",
+    "websocket-stream": "^5.5.2",
+    "ws": "^8.18.0"
+  }
+}

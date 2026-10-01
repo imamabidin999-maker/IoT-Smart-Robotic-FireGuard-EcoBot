@@ -1,0 +1,7 @@
+/* EcoBot: aksen hijau. Sisanya ikut shared/css/kopak.css */
+:root { --accent: #6FCF47; }
+
+.meter-fill.bin { background: var(--accent); }
+
+/* kartu sensor yang bisa diklik hanya di mode demo (untuk simulasi objek) */
+.sensor-card.demo-click:focus-visible { outline: 2px solid var(--s1); }
