@@ -18,7 +18,7 @@ dengan data sungguhan.
 
 ## Menyambung ke robot sungguhan
 
-1. **Wiring dan daya.** Ikuti [docs/WIRING.md](docs/WIRING.md). Bagian daya paling penting (baterai 18650 perlu 2 sel seri, dan ESP32/servo tidak boleh dari pin 5 V Uno).
+1. **Wiring dan daya.** Ikuti [docs/WIRING.md](docs/WIRING.md). Untuk EcoBot ada panduan rakit urut langkah demi langkah di [docs/RAKIT-ECOBOT.md](docs/RAKIT-ECOBOT.md). Bagian daya paling penting (baterai 18650 perlu 2 sel seri, dan ESP32/servo tidak boleh dari pin 5 V Uno).
 2. **Upload sketch ke Arduino Uno**: `firmware/fireguard_uno/` atau `firmware/ecobot_uno/`.
    Lepas kabel D0/D1 ke ESP saat upload. Sesuaikan bagian KONFIGURASI di atas sketch (jumlah sensor, arah motor, sudut servo).
    Di modul L298N, **cabut jumper ENA dan ENB** dulu (lihat `docs/WIRING.md` bagian 2).
