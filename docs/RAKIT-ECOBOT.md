@@ -30,8 +30,8 @@ karena kalau ada yang salah akan sulit mencari penyebabnya.
 | Buck converter 5 V ≥ 2 A (LM2596 atau MP1584) | daya 5 V untuk ESP32, ESP32-CAM, dan servo |
 | Motor DC kecil untuk sapu (TT kuning atau tipe 130) | memutar sikat |
 | Sikat roller | bisa dari sikat botol, sikat gigi, atau potongan sedotan/plastik yang ditempel melingkar seperti di gambar |
-| Modul MOSFET (D4184 / AOD4184, atau IRF520) | saklar motor sapu |
-| Dioda 1N4007 atau 1N5819 | pelindung MOSFET dari lonjakan tegangan motor |
+| Modul relay 1 kanal 5 V | saklar motor sapu (pilihan lain ada di langkah 4) |
+| Dioda 1N4007 | pelindung kontak relay dari lonjakan tegangan motor |
 | Resistor 1 kΩ dan 2 kΩ | menurunkan tegangan sinyal Uno → ESP32 |
 | Kapasitor elektrolit 470 µF 16 V | penstabil daya ESP32-CAM |
 | Wadah sampah (kotak plastik kecil) + lembaran plastik/akrilik untuk bidang miring | tempat sampah masuk |
@@ -77,7 +77,7 @@ Lihat robot dari atas:
    - Kiri-depan dan Kanan-depan: di sudut depan, serong ±45° ke luar.
    - Kiri dan Kanan: di samping, menghadap 90° ke luar.
    - Wadah: di tutup/atas wadah, menghadap ke bawah ke dasar wadah.
-6. Sisakan tempat untuk Uno, L298N, ESP32, buck, dan modul MOSFET di bagian belakang/atas, jauh dari jalur sampah.
+6. Sisakan tempat untuk Uno, L298N, ESP32, buck, dan modul relay di bagian belakang/atas, jauh dari jalur sampah.
 
 ---
 
@@ -86,9 +86,9 @@ Lihat robot dari atas:
 ```
 Baterai 2S (+) ── saklar ──┬── L298N +12V
                            ├── Uno VIN
-                           ├── modul MOSFET VIN+
+                           ├── COM modul relay (daya motor sapu)
                            └── buck IN+
-Baterai 2S (−) ────────────┴── GND semua modul (L298N, Uno, MOSFET VIN−, buck IN−, ESP32, ESP32-CAM)
+Baterai 2S (−) ────────────┴── GND semua modul (L298N, Uno, buck IN−, relay, motor sapu (−), ESP32, ESP32-CAM)
 ```
 
 1. Pasang 2 sel 18650 di holder 2S (+ BMS). Ukur dengan multimeter: harus **7,4–8,4 V**.
@@ -130,24 +130,69 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 
 ---
 
-## 4. Motor sapu (modul MOSFET)
+## 4. Motor sapu (modul relay)
+
+Motor sapu tidak boleh disambung langsung ke pin Uno: pin Uno hanya kuat ±20 mA, sedangkan motor butuh
+ratusan mA. Di antaranya perlu saklar elektronik. Panduan ini memakai **modul relay 1 kanal 5 V** karena
+paling mudah dicari dan tidak perlu menyolder komponen kecil. Konsekuensinya sapu hanya bisa nyala/mati,
+kecepatannya tidak bisa diatur. Untuk menyapu, itu sudah cukup.
 
 ```
-Uno D3  ────────► SIG/PWM ┐
-Uno GND ────────► GND     │
-Baterai + ──────► VIN+    │ modul MOSFET
-GND bersama ────► VIN−    │
-Motor sapu ◄──── OUT+ ────┤  ← dioda: katoda (garis) ke OUT+, anoda ke OUT−
-Motor sapu ◄──── OUT− ────┘
+Modul relay
+  VCC ◄── 5 V buck
+  GND ◄── GND bersama
+  IN  ◄── Uno D3
+
+  COM ◄── baterai (+), setelah saklar
+  NO  ──────────► S+ ─┐
+  NC  tidak dipakai   │ dioda 1N4007, sisi bergaris ke S+
+GND bersama ────► S− ─┘
+                  S+ dan S− ──► dua kabel motor sapu
 ```
 
-1. Sambungkan sisi sinyal, sisi daya, dan sisi motor seperti gambar.
-2. Solder/pasang **dioda melintang di terminal OUT modul**: sisi bergaris (katoda) ke OUT+. Dengan dioda di
-   terminal modul, kabel motor boleh dibalik nanti tanpa membalik dioda.
-3. Uji di Serial Monitor: `BRUSH 50`. Sikat harus mulai berputar pelan lalu stabil. `BRUSH 0` → berhenti.
-4. **Cek arah putar:** bagian **bawah** sikat harus bergerak **ke belakang** (ke arah wadah), supaya sampah
-   terlempar masuk. Kalau sampah malah terdorong ke depan, tukar dua kabel motor sapu di OUT+/OUT−.
-5. Motor sapu 3–6 V: dari mode manual, jangan naikkan kecepatan sapu di atas ±75% (mode otomatis sudah dibatasi 70%).
+S+ dan S− adalah satu terminal blok 2 pin (atau dua titik solder) tempat kabel motor masuk. Dioda dipasang di
+terminal itu, bukan di badan motor. Dengan begitu, kalau nanti arah putar perlu dibalik, cukup tukar dua kabel
+motor di terminal, dan dioda tetap di posisi yang benar. Dioda yang terbalik sama saja dengan korsleting saat
+relay menyala.
+
+1. Ubah dua baris di sketch, lalu upload ulang:
+   - `BRUSH_USE_PWM` → `0` (relay hanya nyala/mati)
+   - `BRUSH_ACTIVE_HIGH` → `0`, karena banyak modul relay 1 kanal (terutama yang memakai optocoupler)
+     **aktif-LOW**: relay menyala kalau IN diberi LOW. Kalau modul Anda punya jumper pilihan **H/L**, pasang di **L**.
+     Belum yakin modulnya jenis apa? Tidak masalah, langkah 2 akan menunjukkannya.
+2. Sambungkan relay dulu **tanpa motor** (VCC, GND, IN). Nyalakan: **LED relay harus mati dan tidak ada bunyi
+   klik.** Kalau relay langsung menyala, pastikan dulu `BRUSH_USE_PWM` sudah `0` (selama masih `1`, pengaturan
+   aktif-LOW tidak dipakai). Kalau sudah, berarti `BRUSH_ACTIVE_HIGH` terbalik: ganti ke nilai sebaliknya dan
+   upload ulang.
+3. Uji di Serial Monitor: `BRUSH 50` → relay klik (menyala). `BRUSH 0` → klik lagi (mati). Angka berapa pun di
+   atas 0 artinya nyala. Beda dengan roda, sapu tidak mati sendiri setelah 0,6 detik; ia menyala terus sampai
+   dimatikan, ditekan STOP, atau mode diganti.
+4. Sekarang sambungkan COM, NO, terminal S+/S−, dioda, dan motor seperti gambar. Motor di **NO**, bukan NC, supaya sapu mati
+   saat relay tidak aktif. `BRUSH 50` → sikat berputar, `BRUSH 0` → berhenti.
+5. **Cek arah putar:** bagian **bawah** sikat harus bergerak **ke belakang** (ke arah wadah), supaya sampah
+   terlempar masuk. Kalau sampah malah terdorong ke depan, tukar dua kabel motor sapu di terminal S+/S−
+   (dioda jangan ikut dibalik).
+6. **Soal tegangan:** lewat relay, motor sapu mendapat tegangan baterai penuh (7,4–8,4 V). Motor TT kuning
+   umumnya masih tahan, hanya berputar lebih kencang dan lebih hangat. Kalau sikat terlalu kencang sampai sampah
+   terpental keluar, atau motornya panas, sisipkan **2 dioda 1N4007 seri** antara NO dan S+ (sisi bergaris
+   menghadap ke S+). Tiap dioda menurunkan ±0,7 V.
+
+**Pilihan lain, kalau ingin kecepatan sapu bisa diatur dari dashboard.** Pakai transistor **TIP120/TIP122**
+(murah, ±Rp3–5 ribu) atau modul MOSFET D4184. Untuk keduanya, `BRUSH_USE_PWM` **dibiarkan `1`**.
+
+```
+TIP120 dilihat dari depan (sisi bertulisan):  B  C  E  (kiri ke kanan)
+
+Uno D3 ──[1 kΩ]──► B
+terminal S− ─────► C
+GND bersama ─────► E
+baterai (+) ─────► terminal S+
+Dioda 1N4007 di terminal S+/S−: sisi bergaris ke S+. Kabel motor sapu masuk ke S+ dan S−.
+```
+
+Sirip logam TIP120 tersambung ke kaki C, jadi jangan sampai menyentuh logam lain. Transistor ini memakan
+±1–1,5 V, jadi motor sapu kebagian ±6–7 V saat penuh, dan mode otomatis memakai 70% dari itu. Wiring modul
+MOSFET ada di [WIRING.md](WIRING.md) bagian 4.
 
 ---
 
@@ -238,7 +283,8 @@ ESP32 GND ─────────────── GND bersama
 Dengan roda **masih diangkat**:
 
 1. Mode **Manual**. Gerakkan joystick / WASD: arah roda sesuai.
-2. Tekan **Turunkan Sapu** → sapu turun. **Nyalakan Sapu** → berputar. Geser slider kecepatan sapu.
+2. Tekan **Turunkan Sapu** → sapu turun. **Nyalakan Sapu** → berputar. (Slider kecepatan sapu hanya muncul
+   kalau memakai transistor/MOSFET; dengan relay slider itu memang disembunyikan.)
 3. Tekan **STOP** (atau Spasi): roda dan sapu berhenti, sapu terangkat.
 4. Dekatkan tangan ke sensor depan: kartu sensor berubah kuning (terdeteksi) lalu merah (dekat).
 
@@ -255,9 +301,11 @@ Lalu di lantai:
 
 | Gejala | Yang dicek |
 |---|---|
-| Uno restart saat sapu/servo mulai bergerak | servo dan ESP harus dari buck, bukan pin 5V Uno; dioda motor sapu terpasang; naikkan `BRUSH_RAMP_MS` |
+| Uno restart saat sapu/servo mulai bergerak | servo dan ESP harus dari buck, bukan pin 5V Uno; dioda motor sapu terpasang; kabel GND bersama cukup besar |
 | Motor roda selalu kencang | jumper ENA/ENB di L298N belum dicabut |
-| Motor sapu tidak berputar | sisi daya modul MOSFET (VIN dari baterai), GND bersama, kabel D3 |
+| Relay langsung menyala begitu robot dinyalakan | `BRUSH_USE_PWM` belum `0`, atau `BRUSH_ACTIVE_HIGH` terbalik |
+| Relay berbunyi klik tapi sapu diam | motor tersambung ke NC, bukan NO; COM belum diberi baterai (+); GND motor |
+| Relay tidak berbunyi sama sekali | VCC/GND relay, kabel D3, sudah mode Manual (`BRUSH` diabaikan di mode Otomatis) |
 | Sampah terdorong keluar, bukan masuk | arah putar sikat terbalik: tukar kabel motor sapu |
 | Robot menghindari sampah kecil | sensor Depan terlalu rendah, naikkan posisinya |
 | Kapasitas wadah tidak masuk akal | ukur ulang `BIN_EMPTY_CM` saat wadah kosong |

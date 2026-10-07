@@ -16,9 +16,10 @@ Pakai **2 sel seri (7,4 V, penuh 8,4 V)** dengan holder dan proteksi (BMS 2S).
 ```
 Baterai 2S (7,4 V) ──► saklar ──┬─► L298N terminal +12V  (motor roda)
                                 ├─► Uno pin VIN          (Uno punya regulator sendiri)
-                                ├─► modul MOSFET VIN+    (khusus EcoBot: motor sapu)
-                                └─► Buck converter 5 V ≥ 2 A ──► ESP32, ESP32-CAM, servo, MQ-2
-GND baterai = GND L298N = GND Uno = GND buck = GND ESP = GND modul MOSFET (semua GND harus disatukan)
+                                ├─► COM relay motor sapu (khusus EcoBot)
+                                └─► Buck converter 5 V ≥ 2 A ──► ESP32, ESP32-CAM, servo, MQ-2, relay
+                                    (FireGuard: pakai buck ≥ 3 A, karena pompa juga ambil daya dari sini)
+GND baterai = GND L298N = GND Uno = GND buck = GND ESP = GND relay (semua GND harus disatukan)
 ```
 
 - **Jangan** menyuplai ESP32, ESP32-CAM, servo, atau MQ-2 dari pin 5 V Uno. Regulator Uno tidak kuat
@@ -70,24 +71,50 @@ Uno D6 ───────┤ ENB  ← cabut jumper-nya dulu!  │
 | L298N ENB / IN3 / IN4 | D6 / D9 / D10 | sisi **kanan** |
 | Sensor api 1 (Kiri) | A0 | pin **AO** modul |
 | Sensor api 2 (Kanan) | A1 | pin **AO** modul |
-| Sensor api 3 (Depan) | A2 | hanya kalau `FLAME_COUNT 3`; urutan jadi Kiri, Depan, Kanan |
+| Sensor api 3 | A2 | hanya kalau `FLAME_COUNT 3`; urutannya jadi Kiri A0, **Depan A1**, **Kanan A2** |
 | MQ-2 #1 | A3 | pin **AO** modul |
 | MQ-2 #2 | A4 | hanya kalau `GAS_COUNT 2` |
 | Baterai (pembagi tegangan) | A5 | opsional, `HAS_BATTERY_SENSE 1` |
 | Servo nozzle | D11 | sinyal; merah ke 5 V buck, coklat/hitam ke GND |
-| Pompa | D4 | ke **modul relay atau MOSFET**, bukan ke pompa langsung |
+| Pompa | D4 | ke pin **IN modul relay**, bukan ke pompa langsung |
 | LED indikator | D13 (LED bawaan) | menyala saat api terdeteksi |
 
-**Pompa tidak ada di daftar komponen Anda.** Pompa DC mini butuh driver: modul relay 5 V satu kanal, atau
-MOSFET (mis. IRLZ44N / modul MOSFET). Modul relay biasanya aktif-LOW, kalau pompa menyala terbalik
-(nyala saat seharusnya mati) ubah `PUMP_ACTIVE_HIGH` jadi `0`. Kalau pakai relay, pasang juga dioda
-flyback di pompa. Sebelum mencoba pompa dari dashboard, pastikan ada air di tangkinya, karena pompa
-kering cepat rusak.
+Urutan merakit dan cara kalibrasinya ada di [RAKIT-FIREGUARD.md](RAKIT-FIREGUARD.md).
 
-Sensor api (IR flame, 4 pin: VCC, GND, DO, AO): dipakai AO-nya. Putar potensio di modul sampai nilai
-sekitar 900–1000 di ruangan biasa, lalu dekatkan api (korek) dan lihat nilainya turun. Ambang di firmware:
-`FLAME_WARN 700`, `FLAME_DANGER 400`. Sensor IR ini juga terpengaruh cahaya matahari dan lampu pijar,
-jadi kalibrasi di tempat robot dipakai.
+### Pompa lewat modul relay
+
+**Pompa dan pensaklarnya tidak ada di daftar komponen Anda**, jadi perlu dibeli: pompa celup mini DC 3–6 V
+dan modul relay 1 kanal 5 V. Pompa tidak boleh disambung langsung ke pin Uno.
+
+```
+Modul relay
+  VCC ◄── 5 V buck
+  GND ◄── GND bersama
+  IN  ◄── Uno D4
+  COM ◄── 5 V buck   (pompa 6–12 V: dari baterai +)
+  NO  ──► pompa (+)
+  NC      tidak dipakai
+pompa (−) ──► GND bersama
+Dioda 1N4007 melintang di pompa: sisi bergaris (katoda) ke (+)
+```
+
+- Banyak modul relay 1 kanal (terutama yang memakai optocoupler) **aktif-LOW**. Untuk modul seperti itu ubah
+  `PUMP_ACTIVE_HIGH` jadi `0`.
+  Cara mengeceknya: begitu Uno menyala, LED relay harus mati. Kalau menyala, nilainya terbalik.
+- Pompa di **NO**, bukan NC, supaya pompa mati selama relay tidak aktif.
+- Pompa yang berputar kering cepat rusak. Pastikan terendam air sebelum diuji.
+- Bisa juga memakai transistor TIP120 atau modul MOSFET dengan wiring seperti motor sapu EcoBot (bagian 4),
+  cukup ganti D3 dengan D4. Untuk keduanya `PUMP_ACTIVE_HIGH` dibiarkan `1`.
+- Pompa bisa diganti kipas (motor DC + baling-baling) di relay yang sama. Kipas cukup untuk api kecil seperti lilin.
+
+### Sensor api dan gas
+
+Sensor api (IR flame, 4 pin: VCC, GND, DO, AO): dipakai AO-nya, DO dibiarkan kosong. Pada kebanyakan modul,
+potensio biru hanya mengatur kapan pin DO dan LED kecilnya menyala, **tidak mengubah angka AO**. Jadi
+kalibrasinya lewat angka di sketch: `FLAME_WARN 700` (mulai mencari api) dan `FLAME_DANGER 400` (berhenti
+dan menyemprot). Karena FireGuard tidak punya sensor rintangan, `FLAME_DANGER` sekaligus menentukan seberapa
+dekat robot ke api; cara mengukurnya ada di RAKIT-FIREGUARD.md langkah 11. Sensor IR ini juga terpengaruh
+cahaya matahari dan lampu pijar, jadi kalibrasi di tempat robot dipakai.
 
 **Soal jumlah sensor:** dari daftar Anda ("flame sensor × 3, berjumlah 2" dan "MQ-2 sekitar 1 atau 2"),
 bawaan sketch adalah **2 sensor api + 1 MQ-2**. Kalau ternyata 3 api atau 2 gas, cukup ubah
@@ -104,7 +131,7 @@ hanya titik awal: catat nilai di udara bersih, lalu atur ambangnya.
 | ESP (Serial) | D0 (RX), D1 (TX) | sama seperti FireGuard |
 | L298N ENA / IN1 / IN2 | D5 / D7 / D8 | roda kiri (lihat bagian 2) |
 | L298N ENB / IN3 / IN4 | D6 / D9 / D10 | roda kanan |
-| Motor sapu | D3 | ke pin **SIG/PWM** modul MOSFET (bukan langsung ke motor) |
+| Motor sapu | D3 | ke pin **IN** modul relay (atau basis TIP120 / SIG modul MOSFET), bukan langsung ke motor |
 | Servo pengangkat sapu | D11 | sinyal; merah ke 5 V buck, coklat/hitam ke GND |
 | Ultrasonik **TRIG** Depan + Wadah | D2 | dua sensor berbagi satu pin TRIG |
 | Ultrasonik **TRIG** Kiri-depan + Kanan-depan | D4 | berbagi |
@@ -120,11 +147,31 @@ hanya titik awal: catat nilai di udara bersih, lalu atur ambangnya.
 Dengan susunan ini **ke-20 pin Uno terpakai semua**: ESP 2, L298N 6, sapu 1, servo 1, baterai 1,
 ultrasonik 9. Karena itu motor sapu dibuat cukup dengan satu pin.
 
-### Motor sapu lewat modul MOSFET
+### Motor sapu: pilih salah satu pensaklar
 
-Modul MOSFET adalah saklar elektronik. Uno hanya mengirim sinyal (kecil, 5 V), sedangkan arus motor
-mengalir dari baterai lewat modul. Jadi **tidak cukup disambung ke Uno saja**: ada tiga sisi yang
-perlu disambung.
+Pin Uno hanya kuat ±20 mA, sedangkan motor sapu butuh ratusan mA. Jadi di antara D3 dan motor harus ada
+saklar elektronik. Ketiganya didukung firmware:
+
+| Pilihan | Kecepatan sapu | Pengaturan di sketch | Catatan |
+|---|---|---|---|
+| **Modul relay 1 kanal 5 V** (dipakai di panduan rakit) | nyala/mati saja | `BRUSH_USE_PWM 0`, `BRUSH_ACTIVE_HIGH 0` kalau relay aktif-LOW | paling mudah, tanpa solder komponen kecil |
+| Transistor TIP120 / TIP122 + resistor 1 kΩ | bisa diatur | biarkan `BRUSH_USE_PWM 1` | murah, perlu sedikit solder/breadboard, memakan ±1–1,5 V |
+| Modul MOSFET (D4184 / AOD4184) | bisa diatur | biarkan `BRUSH_USE_PWM 1` | paling efisien |
+
+Apa pun pilihannya, pasang **dioda flyback** (1N4007 atau 1N5819) melintang di jalur motor sapu, dengan
+garis/katoda ke sisi +. Pasang di terminal tempat kabel motor masuk (bukan di badan motor), supaya kabel motor
+boleh ditukar untuk membalik arah putar tanpa ikut membalik dioda. Langkah lengkap relay dan TIP120 ada di
+[RAKIT-ECOBOT.md](RAKIT-ECOBOT.md) langkah 4.
+
+**Relay:** VCC ← 5 V buck, GND ← GND bersama, IN ← D3, COM ← baterai (+), NO → motor (+), motor (−) → GND.
+Motor mendapat tegangan baterai penuh (7,4–8,4 V); motor TT masih tahan tapi lebih kencang dan hangat. Dua
+dioda 1N4007 seri di jalur + menurunkan ±1,4 V kalau perlu. Slider kecepatan sapu otomatis disembunyikan di
+dashboard.
+
+**TIP120:** D3 → resistor 1 kΩ → kaki B. Kaki E → GND bersama. Kaki C → motor (−). Motor (+) → baterai (+).
+Urutan kaki dilihat dari sisi bertulisan: B, C, E. Sirip logamnya tersambung ke C.
+
+**Modul MOSFET:** modul ini juga tidak cukup disambung ke Uno saja; ada tiga sisi yang perlu disambung.
 
 ```
 Uno D3  ───────────────► SIG / PWM ┐
@@ -139,18 +186,14 @@ Motor sapu (−) ◄──────── OUT− / V− ┘
 
 - Nama terminalnya beda-beda tiap modul (VIN/GND, DC+/DC−, V+/V−, LOAD), tapi polanya selalu sama:
   **sinyal dari Uno, daya dari baterai, keluaran ke motor**.
-- Pilih modul yang bisa penuh menyala dengan sinyal 5 V (*logic-level*), misalnya modul **D4184 / AOD4184**
-  atau MOSFET **IRLZ44N**. Modul **IRF520** yang banyak dijual juga bisa untuk motor kecil, tapi pada sinyal
-  5 V ia tidak menyala penuh dan lebih cepat panas.
-- Pasang **dioda flyback** (1N4007 atau 1N5819) melintang di terminal motor sapu: garis/katoda ke + motor.
-  Banyak modul belum punya dioda ini, padahal lonjakan tegangan dari motor bisa merusak MOSFET.
-- Motor sapu kecil (TT kuning atau tipe 130) umumnya 3–6 V. Karena daya dari baterai 7,4–8,4 V, kecepatan
-  sapu otomatis dibatasi 70% (`BRUSH_AUTO_PCT`, ±5,9 V). Di mode manual, slider kecepatan sapu juga
-  sebaiknya tidak dinaikkan di atas sekitar 75% untuk motor 6 V.
-- Firmware menaikkan kecepatan sapu pelan-pelan (soft-start, `BRUSH_RAMP_MS`) supaya lonjakan arus saat
-  mulai berputar tidak me-reset Uno.
-- Kalau ternyata memakai **modul relay** (hanya nyala/mati): ubah `BRUSH_USE_PWM` jadi `0`, dan kalau
-  relaynya aktif-LOW, `BRUSH_ACTIVE_HIGH` jadi `0`. Slider kecepatan sapu otomatis disembunyikan di dashboard.
+- Pilih modul yang bisa penuh menyala dengan sinyal 5 V (*logic-level*), misalnya **D4184 / AOD4184** atau
+  MOSFET **IRLZ44N**. Modul **IRF520** juga bisa untuk motor kecil, tapi pada sinyal 5 V ia tidak menyala
+  penuh dan lebih cepat panas.
+
+Untuk transistor dan MOSFET, kecepatan sapu di mode otomatis dibatasi 70% (`BRUSH_AUTO_PCT`, ±5,9 V dari
+baterai 2S) supaya aman untuk motor 3–6 V, dan firmware menaikkan kecepatan pelan-pelan (soft-start,
+`BRUSH_RAMP_MS`) supaya lonjakan arus saat mulai berputar tidak me-reset Uno. Di mode manual, slider kecepatan
+sapu sebaiknya tidak dinaikkan di atas ±75% untuk motor 6 V.
 
 ### Servo pengangkat sapu
 
