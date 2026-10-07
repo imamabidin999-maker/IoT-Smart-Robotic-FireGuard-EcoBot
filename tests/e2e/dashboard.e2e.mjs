@@ -27,7 +27,9 @@ let browser;
 before(async () => { browser = await launch(); fs.mkdirSync(SHOTS, { recursive: true }); });
 after(async () => { await browser.close(); });
 
-let portSeed = 20000 + (process.pid % 2000) * 8;    // acak per proses supaya dua kali jalan tidak bentrok
+// acak per proses supaya dua kali jalan tidak bentrok, dan tetap di bawah 32768 (awal rentang port
+// sementara Linux) supaya tidak bertabrakan dengan port koneksi keluar milik browser
+let portSeed = 20000 + (process.pid % 1000) * 8;
 const ports = () => { const p = { ws: portSeed, cam: portSeed + 1, mqttWs: portSeed + 2 }; portSeed += 4; return p; };
 
 /** buka dashboard, jalankan fn, pastikan tidak ada error, tutup */
@@ -233,6 +235,29 @@ for (const robot of ROBOTS) {
       assert.ok((await sent(page)).includes('STOP'), 'Spasi harus mengirim STOP');
       const y = await page.evaluate(() => window.scrollY);
       assert.equal(y, 0, 'Spasi tidak boleh menggulung halaman');
+    });
+  });
+
+  test(`${robot} demo: STOP lalu langsung Otomatis — STOP susulan tidak membatalkan mode baru`, async () => {
+    await run(robot, {}, async ({ page }) => {
+      await spySend(page, robot);
+      await page.click('#btnAuto'); await waitMode(page, 'A');
+      await clearSent(page);
+      // STOP lalu Otomatis dalam satu tick, jauh sebelum STOP susulan (120/260 ms) terkirim
+      const manualRightAfterStop = await page.evaluate(() => {
+        document.getElementById('btnEstop').click();
+        const pressed = document.getElementById('btnManual').getAttribute('aria-pressed');
+        document.getElementById('btnAuto').click();
+        return pressed;
+      });
+      assert.equal(manualRightAfterStop, 'true', 'setelah STOP tombol Manual langsung aktif');
+      await waitMode(page, 'A');
+      await page.waitForTimeout(600);
+      const log = await sent(page);
+      assert.equal(log.filter((l) => l === 'STOP').length, 1, `STOP susulan harus dibatalkan: ${log.join(' | ')}`);
+      assert.ok(log.lastIndexOf('MODE A') > log.lastIndexOf('STOP'), 'tidak ada STOP setelah MODE A');
+      assert.equal(await page.getAttribute('#btnAuto', 'aria-pressed'), 'true', 'robot harus tetap Otomatis');
+      assert.doesNotMatch(await text(page, '.toast-region'), /tidak mengonfirmasi/);
     });
   });
 

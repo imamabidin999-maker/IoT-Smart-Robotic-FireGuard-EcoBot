@@ -251,8 +251,11 @@
 
     setMode(m) {
       if (this.tel && this.tel.m === m && this.alive) return;
-      if (!this.send(`MODE ${m}`, true)) return;
+      // dicatat sebelum dikirim, karena di mode demo balasan robot datang seketika (sebelum send() selesai)
+      const prevPending = this.pendingMode;
       this.pendingMode = m;
+      if (!this.send(`MODE ${m}`, true)) { this.pendingMode = prevPending; return; }
+      this._cancelStopRepeats();          // STOP susulan jangan sampai membatalkan mode yang baru dipilih
       this._renderCommon();
       clearTimeout(this._pendingTimer);
       this._pendingTimer = setTimeout(() => {
@@ -267,12 +270,22 @@
     estop() {
       this.joystick.release();
       this.drive.stop();
+      clearTimeout(this._pendingTimer);   // STOP mengalahkan perubahan mode yang belum dikonfirmasi
+      this.pendingMode = null;
       if (this.o.onEstop) this.o.onEstop(this);
       const ok = this.link.send('STOP');
-      if (ok) { setTimeout(() => this.link.send('STOP'), 120); setTimeout(() => this.link.send('STOP'), 260); }
+      this._cancelStopRepeats();
+      // diulang dua kali untuk jaga-jaga kalau satu paket hilang
+      if (ok) this._stopRepeats = [120, 260].map((ms) => setTimeout(() => this.link.send('STOP'), ms));
       this.log.add('danger', 'Berhenti darurat ditekan — robot dihentikan, masuk mode manual');
       if (ok) this.toast('BERHENTI DARURAT — robot dihentikan.', 'danger');
       else this.toast('Tidak tersambung! Perintah berhenti TIDAK terkirim ke robot.', 'danger');
+      this._renderCommon();
+    }
+
+    _cancelStopRepeats() {
+      (this._stopRepeats || []).forEach(clearTimeout);
+      this._stopRepeats = [];
     }
 
     // ---------- banner peringatan ----------

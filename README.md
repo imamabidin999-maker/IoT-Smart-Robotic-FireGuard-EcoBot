@@ -94,7 +94,7 @@ Yang sudah dijalankan otomatis:
 - **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 22 skenario diperiksa
   (JSON valid di tiap baris, siaga → belok → semprot → jeda, batas 15 detik pompa, dead-man, soft-start sapu, servo pengangkat,
   menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah).
-- **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 57 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
+- **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 59 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
   (`tools/mock-robot`), termasuk server mati lalu hidup lagi, stream kamera macet, dan lima ukuran layar. Setiap tes memastikan
   **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
 
