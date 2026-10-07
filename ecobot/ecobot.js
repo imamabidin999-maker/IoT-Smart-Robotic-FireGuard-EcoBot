@@ -1,11 +1,11 @@
 /*
-  ecobot.js — logika dashboard khusus EcoBot.
+  ecobot.js — logika dashboard khusus EcoBot (robot penyapu).
   Kerangka umum (koneksi, joystick, log, kamera, pengaturan) ada di shared/js/dashboard.js.
 
   Urutan 6 sensor ultrasonik di telemetri (array `d` dan `l`):
-    0 Depan · 1 Belakang · 2 Kiri · 3 Kanan · 4 Capit · 5 Bin
-  Lima pertama dipakai untuk deteksi objek. Sensor ke-6 (Bin) menghadap ke dalam
-  penampung dan diukur sebagai jarak ke permukaan sampah -> jadi persen kapasitas bin.
+    0 Depan · 1 Kiri-depan · 2 Kanan-depan · 3 Kiri · 4 Kanan · 5 Wadah
+  Lima pertama untuk mendeteksi rintangan. Sensor ke-6 (Wadah) menghadap ke dalam
+  wadah sampah dan diukur sebagai jarak ke permukaan sampah -> jadi persen kapasitas wadah.
 */
 (function () {
   'use strict';
@@ -14,44 +14,54 @@
   const $ = K.$;
 
   const LEVEL_KEY = ['ok', 'warn', 'danger'];
+  const LEVEL_TEXT = ['Kosong', 'Terdeteksi', 'Dekat'];
   const SENSORS = [
-    { key: 'depan',    label: 'Depan',    texts: ['Kosong', 'Terdeteksi', 'Jangkauan'] },
-    { key: 'belakang', label: 'Belakang', texts: ['Kosong', 'Terdeteksi', 'Dekat'] },
-    { key: 'kiri',     label: 'Kiri',     texts: ['Kosong', 'Terdeteksi', 'Dekat'] },
-    { key: 'kanan',    label: 'Kanan',    texts: ['Kosong', 'Terdeteksi', 'Dekat'] },
-    { key: 'capit',    label: 'Capit',    texts: ['Kosong', 'Terdeteksi', 'Jangkauan'] },
+    { key: 'depan',   label: 'Depan',       short: 'Depan' },
+    { key: 'kidepan', label: 'Kiri-depan',  short: 'Ki-depan' },
+    { key: 'kadepan', label: 'Kanan-depan', short: 'Ka-depan' },
+    { key: 'kiri',    label: 'Kiri',        short: 'Kiri' },
+    { key: 'kanan',   label: 'Kanan',       short: 'Kanan' },
   ];
   const DEFAULT_PINS = ['A0', 'A1', 'A2', 'A3', 'A4', 'D13'];
   const STATE_TEXT = {
-    roam: 'Menjelajah', approach: 'Mendekati objek', align: 'Membidik objek', avoid: 'Menghindar',
-    pick: 'Mengambil sampah', full: 'Bin penuh', manual: 'Kendali manual', idle: 'Siaga',
+    sweep: 'Menyapu', avoid: 'Menghindar', turn: 'Berbelok', full: 'Wadah penuh', manual: 'Kendali manual',
   };
   const BIN_WARN = 70;
   const BIN_FULL = 95;
   const SERIES = [
     { idx: 0, label: 'Depan', color: '#3987e5' },
-    { idx: 2, label: 'Kiri', color: '#d95926' },
-    { idx: 3, label: 'Kanan', color: '#199e70' },
+    { idx: 1, label: 'Kiri-depan', color: '#d95926' },
+    { idx: 2, label: 'Kanan-depan', color: '#199e70' },
   ];
 
   const el = {
     sensorList: $('sensorList'),
-    gripBox: $('gripBox'), gripText: $('gripText'), clawLabel: $('clawLabel'), armLabel: $('armLabel'),
-    clawBtn: $('clawBtn'), armBtn: $('armBtn'), pickBtn: $('pickBtn'),
+    brushBox: $('brushBox'), brushText: $('brushText'), brushLabel: $('brushLabel'), liftLabel: $('liftLabel'),
+    brushBtn: $('brushBtn'), liftBtn: $('liftBtn'),
+    brushSpeed: $('brushSpeed'), brushSpeedValue: $('brushSpeedValue'), brushSpeedRow: $('brushSpeedRow'), brushRelayNote: $('brushRelayNote'),
     binValue: $('binLevelValue'), binFill: $('binFill'), binTrack: $('binTrack'),
-    pickCount: $('pickCount'), binResetDemo: $('binResetDemo'), robotState: $('robotState'),
+    sweepTime: $('sweepTime'), binResetDemo: $('binResetDemo'), robotState: $('robotState'),
     chartMount: $('chartMount'), win60: $('win60'), win300: $('win300'), btnTable: $('btnTable'), btnCsv: $('btnCsv'),
   };
 
   let dash = null;
-  let th = { det: 60, reach: 15, grab: 12 };
+  let th = { det: 50, near: 20, side: 10 };
   let pins = DEFAULT_PINS.slice();
+  let brushPwm = true;                 // false = motor sapu lewat relay (hanya nyala/mati)
   let cards = [];
   let chart = null;
-  const lastObjLog = {};
+  let speedTimer = null;
+  const lastLog = {};
 
   const setText = (node, txt) => { if (node.textContent !== txt) node.textContent = txt; };
   const setAttr = (node, name, val) => { if (node.getAttribute(name) !== val) node.setAttribute(name, val); };
+  /** catat ke log paling sering sekali per `ms` untuk kunci yang sama (supaya log tidak banjir) */
+  const logLimited = (d, key, ms, level, text) => {
+    const now = Date.now();
+    if (now - (lastLog[key] || 0) < ms) return;
+    lastLog[key] = now;
+    d.log.add(level, text);
+  };
 
   // ---------- kartu sensor ----------
 
@@ -79,7 +89,7 @@
       full.textContent = `Sensor ${s.label}`;
       const short = document.createElement('span');
       short.className = 'label-short';
-      short.textContent = s.label;
+      short.textContent = s.short;
       lab.append(full, short);
       const sub = document.createElement('div');
       sub.className = 'sensor-sub';
@@ -99,13 +109,13 @@
       root.append(main, read);
       el.sensorList.appendChild(root);
 
-      // demo: klik kartu = paksa level (kosong -> terdeteksi -> jangkauan)
+      // demo: klik kartu = paksa level (kosong -> terdeteksi -> dekat)
       const cycle = () => {
         if (!dash || !dash.isDemo || !dash.link.sim) return;
         const sim = dash.link.sim;
         const next = (sim.forced[i] + 1) % 3;
         sim.force(i, next);
-        dash.toast(`Simulasi: sensor ${s.label} → ${s.texts[next]}`);
+        dash.toast(`Simulasi: sensor ${s.label} → ${LEVEL_TEXT[next]}`);
       };
       root.addEventListener('click', cycle);
       root.addEventListener('keydown', (e) => {
@@ -126,7 +136,7 @@
       if (on) {
         setAttr(c.root, 'tabindex', '0');
         setAttr(c.root, 'role', 'button');
-        setAttr(c.root, 'title', 'Demo: klik untuk mensimulasikan objek');
+        setAttr(c.root, 'title', 'Demo: klik untuk mensimulasikan rintangan');
       } else {
         c.root.removeAttribute('tabindex');
         setAttr(c.root, 'role', 'group');
@@ -141,8 +151,8 @@
     chart = K.LineChart.mount(el.chartMount, {
       series: SERIES.map((s) => ({ label: s.label, color: s.color })),
       yMin: 0, yMax: 200, yTicks: [0, 50, 100, 150, 200], unit: 'cm', windowSec: 60,
-      thresholds: [{ y: th.det, label: 'terdeteksi' }, { y: th.reach, label: 'jangkauan' }],
-      ariaLabel: 'Grafik jarak sensor ultrasonik depan, kiri, dan kanan',
+      thresholds: [{ y: th.det, label: 'terdeteksi' }, { y: th.near, label: 'dekat' }],
+      ariaLabel: 'Grafik jarak sensor ultrasonik depan, kiri-depan, dan kanan-depan',
     });
     const setWin = (sec) => {
       el.win60.setAttribute('aria-pressed', String(sec === 60));
@@ -162,59 +172,65 @@
     });
   }
 
-  // ---------- tombol aktuator ----------
+  // ---------- tombol sapu ----------
 
-  const isManual = () => !!(dash && dash.alive && dash.tel && dash.tel.m === 'M' && dash.tel.st !== 'pick');
+  const isManual = () => !!(dash && dash.alive && dash.tel && dash.tel.m === 'M');
+  const sliderPct = () => parseInt(el.brushSpeed.value, 10) || 70;
 
-  el.clawBtn.addEventListener('click', () => {
+  el.brushBtn.addEventListener('click', () => {
     if (!isManual()) return;
-    dash.send(`CLAW ${dash.tel.cl ? 0 : 1}`, true);
+    const on = (dash.tel.bt | 0) > 0;
+    dash.send(`BRUSH ${on ? 0 : (brushPwm ? sliderPct() : 100)}`, true);
   });
-  el.armBtn.addEventListener('click', () => {
+  el.liftBtn.addEventListener('click', () => {
     if (!isManual()) return;
-    dash.send(`ARM ${dash.tel.ar ? 0 : 1}`, true);
+    dash.send(`LIFT ${dash.tel.lf ? 0 : 1}`, true);
   });
-  el.pickBtn.addEventListener('click', () => {
-    if (!dash.alive || !dash.tel || dash.tel.st === 'pick') return;
-    if ((dash.tel.bin | 0) >= BIN_FULL) { dash.toast('Bin penuh. Kosongkan bin dulu sebelum mengambil sampah.', 'warn'); return; }
-    dash.send('PICK', true);
+  el.brushSpeed.addEventListener('input', () => {
+    setText(el.brushSpeedValue, `${sliderPct()}%`);
+    // kalau sapu sedang berputar, kecepatan baru langsung dikirim (dibatasi supaya tidak membanjiri)
+    clearTimeout(speedTimer);
+    speedTimer = setTimeout(() => {
+      if (isManual() && (dash.tel.bt | 0) > 0) dash.send(`BRUSH ${sliderPct()}`);
+    }, 150);
   });
   el.binResetDemo.addEventListener('click', () => {
-    if (dash.isDemo && dash.link.sim) { dash.link.sim.resetBin(); dash.toast('Simulasi: bin dikosongkan.'); }
+    if (dash.isDemo && dash.link.sim) { dash.link.sim.resetBin(); dash.toast('Simulasi: wadah dikosongkan.'); }
   });
 
   // ---------- kejadian -> log & banner ----------
 
   function logEvents(tel, prev, d) {
-    const n = tel.n | 0, pn = prev && typeof prev.n === 'number' ? prev.n : n;
-    if (n > pn) d.log.add('ok', `Sampah ke-${n} masuk ke penampung (bin ${tel.bin}%)`);
-    if (prev && tel.st === 'pick' && prev.st !== 'pick') d.log.add('accent', 'Mulai mengambil sampah…');
-
     const bin = tel.bin | 0, pbin = prev && typeof prev.bin === 'number' ? prev.bin : bin;
-    if (bin >= BIN_FULL && pbin < BIN_FULL) d.log.add('danger', `Bin penuh (${bin}%) — pemungutan otomatis dihentikan`);
-    else if (bin >= BIN_WARN && pbin < BIN_WARN) d.log.add('warn', `Bin terisi ${bin}%`);
-    else if (bin < 50 && pbin >= BIN_WARN) d.log.add('ok', 'Bin sudah dikosongkan');
+    if (bin >= BIN_FULL && pbin < BIN_FULL) d.log.add('danger', `Wadah penuh (${bin}%)${tel.m === 'A' ? ' — menyapu otomatis dihentikan' : ''}`);
+    else if (bin >= BIN_WARN && pbin < BIN_WARN) d.log.add('warn', `Wadah terisi ${bin}%`);
+    else if (bin < 50 && pbin >= BIN_WARN) d.log.add('ok', 'Wadah sudah dikosongkan');
+
+    if (!prev) return;
+
+    if (tel.m === 'A') {
+      if (tel.st === 'sweep' && prev.st !== 'sweep' && prev.st !== 'avoid' && prev.st !== 'turn') d.log.add('accent', 'Mulai menyapu otomatis');
+      if (tel.st === 'avoid' && prev.st !== 'avoid') {
+        const front = [0, 1, 2].map((i) => tel.d[i]).filter((v) => v >= 0);
+        const near = front.length ? Math.min(...front) : null;
+        logLimited(d, 'avoid', 8000, 'info', `Rintangan di depan${near != null ? ` (${near} cm)` : ''} — mundur dan berbelok`);
+      }
+    }
+
+    // sapu & pengangkat: dicatat saat dikendalikan operator (di mode otomatis berubah terlalu sering)
+    if (tel.m === 'M' && prev.m === 'M') {
+      const bt = tel.bt | 0, pbt = prev.bt | 0;
+      if (bt > 0 && pbt === 0) d.log.add('info', `Sapu dinyalakan (${bt}%)`);
+      else if (bt === 0 && pbt > 0) d.log.add('info', 'Sapu dimatikan');
+      if (typeof tel.lf === 'number' && tel.lf !== prev.lf) d.log.add('info', tel.lf ? 'Sapu diangkat' : 'Sapu diturunkan');
+    }
 
     const l = tel.l || [], pl = (prev && prev.l) || [];
-    const now = Date.now();
     SENSORS.forEach((s, i) => {
-      const cur = l[i] | 0, was = pl[i] | 0;
-      const key = s.key + cur;
-      if (cur >= 1 && cur > was && now - (lastObjLog[key] || 0) > 5000) {
-        lastObjLog[key] = now;
-        d.log.add(cur === 2 ? 'warn' : 'info', `Objek ${cur === 2 ? 'sangat dekat' : 'terdeteksi'} — sensor ${s.label} (${tel.d[i]} cm)`);
+      if ((l[i] | 0) === 2 && (pl[i] | 0) < 2) {
+        logLimited(d, 'near-' + s.key, 10000, 'warn', `Rintangan dekat — sensor ${s.label} (${tel.d[i]} cm)`);
       }
     });
-
-    if (prev && tel.m === 'A' && tel.st !== prev.st && tel.st !== 'pick' && STATE_TEXT[tel.st]) {
-      d.log.add('accent', `Status robot: ${STATE_TEXT[tel.st]}`);
-    }
-    if (tel.m === 'M' && prev && prev.m === 'M' && typeof tel.cl === 'number' && tel.cl !== prev.cl && tel.st !== 'pick') {
-      d.log.add('info', tel.cl ? 'Capit ditutup oleh operator' : 'Capit dibuka oleh operator');
-    }
-    if (tel.m === 'M' && prev && prev.m === 'M' && typeof tel.ar === 'number' && tel.ar !== prev.ar && tel.st !== 'pick') {
-      d.log.add('info', tel.ar ? 'Lengan dinaikkan oleh operator' : 'Lengan diturunkan oleh operator');
-    }
   }
 
   // ---------- render ----------
@@ -229,7 +245,7 @@
       if (alive && tel && Array.isArray(tel.d) && typeof tel.d[i] === 'number') {
         const lv = K.clamp((tel.l && tel.l[i]) | 0, 0, 2);
         status = LEVEL_KEY[lv];
-        text = c.spec.texts[lv];
+        text = LEVEL_TEXT[lv];
         value = tel.d[i] >= 0 ? `${tel.d[i]} cm` : '—';
       }
       setAttr(c.root, 'data-status', status);
@@ -237,39 +253,41 @@
       setText(c.status, text);
     });
 
-    // capit & lengan
-    const busy = alive && tel && tel.st === 'pick';
-    const manual = !!(alive && tel && tel.m === 'M' && tel.st !== 'pick');
-    let gStatus = 'off', gText = 'OFFLINE';
+    // kotak status sapu
+    const manual = !!(alive && tel && tel.m === 'M');
+    const br = alive && tel ? tel.br | 0 : 0;
+    const bt = alive && tel ? tel.bt | 0 : 0;
+    let bStatus = 'off', bText = 'OFFLINE';
     if (alive && tel) {
-      if (tel.st === 'pick') { gStatus = 'warn'; gText = 'MENGAMBIL SAMPAH'; }
-      else if (tel.st === 'full') { gStatus = 'danger'; gText = 'BIN PENUH'; }
-      else { gStatus = 'ok'; gText = (STATE_TEXT[tel.st] || 'SIAGA').toUpperCase(); }
+      if (tel.st === 'full') { bStatus = 'danger'; bText = 'WADAH PENUH'; }
+      else if (tel.st === 'avoid') { bStatus = 'warn'; bText = 'MENGHINDAR RINTANGAN'; }
+      else if (br > 0) { bStatus = 'ok'; bText = tel.m === 'A' ? 'MENYAPU' : 'SAPU BERPUTAR'; }
+      else if (tel.m === 'A') { bStatus = 'ok'; bText = 'MENYIAPKAN SAPU'; }
+      else { bStatus = 'off'; bText = 'SAPU MATI'; }
     }
-    setAttr(el.gripBox, 'data-status', gStatus);
-    setText(el.gripText, gText);
+    setAttr(el.brushBox, 'data-status', bStatus);
+    setText(el.brushText, bText);
 
-    if (alive && tel && typeof tel.ca === 'number') {
-      setText(el.clawLabel, `${tel.cl ? 'Tertutup' : 'Terbuka'} · ${tel.ca}°`);
-      setText(el.armLabel, `${tel.ar ? 'Naik' : 'Turun'} · ${tel.aa}°`);
+    if (alive && tel && typeof tel.la === 'number') {
+      setText(el.brushLabel, br > 0 ? `Berputar · ${br}%` : (bt > 0 ? `Mulai berputar…` : 'Mati'));
+      setText(el.liftLabel, `${tel.lf ? 'Terangkat' : 'Turun'} · ${tel.la}°`);
     } else {
-      setText(el.clawLabel, '—');
-      setText(el.armLabel, '—');
+      setText(el.brushLabel, '—');
+      setText(el.liftLabel, '—');
     }
 
     const offlineTxt = alive ? 'Nonaktif' : 'Tidak terhubung';
-    el.clawBtn.disabled = !manual;
-    el.armBtn.disabled = !manual;
-    setText(el.clawBtn, manual ? (tel.cl ? 'Buka Capit' : 'Tutup Capit') : offlineTxt);
-    setText(el.armBtn, manual ? (tel.ar ? 'Turunkan Lengan' : 'Naikkan Lengan') : offlineTxt);
-    el.clawBtn.classList.toggle('active', !!(manual && tel.cl));
-    el.armBtn.classList.toggle('active', !!(manual && tel.ar));
+    el.brushBtn.disabled = !manual;
+    el.liftBtn.disabled = !manual;
+    setText(el.brushBtn, manual ? (bt > 0 ? 'Matikan Sapu' : 'Nyalakan Sapu') : offlineTxt);
+    setText(el.liftBtn, manual ? (tel.lf ? 'Turunkan Sapu' : 'Angkat Sapu') : offlineTxt);
+    el.brushBtn.classList.toggle('active', manual && bt > 0);
+    el.liftBtn.classList.toggle('active', !!(manual && !tel.lf));
+    el.brushSpeed.disabled = !manual || !brushPwm;
+    el.brushSpeedRow.hidden = !brushPwm;
+    el.brushRelayNote.hidden = brushPwm;
 
-    const binFull = alive && tel && (tel.bin | 0) >= BIN_FULL;
-    el.pickBtn.disabled = !alive || !tel || busy || binFull;
-    setText(el.pickBtn, busy ? 'Sedang mengambil…' : (binFull ? 'Bin penuh' : 'Jalankan Urutan Ambil Sampah'));
-
-    // bin
+    // wadah
     if (alive && tel && typeof tel.bin === 'number') {
       const pct = K.clamp(tel.bin, 0, 100);
       const color = pct >= BIN_FULL ? 'var(--danger)' : (pct >= BIN_WARN ? 'var(--warn)' : 'var(--accent)');
@@ -278,19 +296,20 @@
       el.binFill.style.background = color;
       el.binValue.style.color = color;
       setAttr(el.binTrack, 'aria-valuenow', String(pct));
-      setText(el.pickCount, String(tel.n | 0));
+      setText(el.sweepTime, typeof tel.sw === 'number' ? K.fmtDuration(tel.sw) : '—');
     } else {
       setText(el.binValue, '—');
       el.binFill.style.width = '0%';
       el.binValue.style.color = '';
       setAttr(el.binTrack, 'aria-valuenow', '0');
-      setText(el.pickCount, '—');
+      setText(el.sweepTime, '—');
     }
     setText(el.robotState, alive && tel ? (STATE_TEXT[tel.st] || String(tel.st || '—')) : '—');
 
-    // banner bin hampir penuh (sama seperti mockup)
+    // banner wadah hampir penuh
+    const binFull = alive && tel && (tel.bin | 0) >= BIN_FULL;
     if (binFull) {
-      d.setAlert('bin', 'warn', `KAPASITAS BIN HAMPIR PENUH — ${tel.bin}% · Segera kembali ke titik pembuangan${tel.m === 'A' ? ' (pemungutan otomatis dihentikan)' : ''}`);
+      d.setAlert('bin', 'warn', `KAPASITAS WADAH HAMPIR PENUH — ${tel.bin}% · Kosongkan wadah sampah${tel.m === 'A' ? ' (menyapu otomatis dihentikan)' : ''}`);
     } else {
       d.setAlert('bin', null);
     }
@@ -299,9 +318,18 @@
   function onInfo(info) {
     if (Array.isArray(info.pins)) { pins = info.pins.map(String); refreshSubs(); }
     if (info.th && typeof info.th === 'object') {
-      th = { det: +info.th.det || th.det, reach: +info.th.reach || th.reach, grab: +info.th.grab || th.grab };
-      chart.o.thresholds = [{ y: th.det, label: 'terdeteksi' }, { y: th.reach, label: 'jangkauan' }];
+      th = { det: +info.th.det || th.det, near: +info.th.near || th.near, side: +info.th.side || th.side };
+      chart.o.thresholds = [{ y: th.det, label: 'terdeteksi' }, { y: th.near, label: 'dekat' }];
       chart.render();
+    }
+    if (info.brush && typeof info.brush === 'object') {
+      brushPwm = info.brush.pwm !== 0;
+      const min = +info.brush.min;
+      if (isFinite(min) && min > 0 && min < 100) {
+        el.brushSpeed.min = String(min);
+        if (sliderPct() < min) el.brushSpeed.value = String(min);
+        setText(el.brushSpeedValue, `${sliderPct()}%`);
+      }
     }
   }
 

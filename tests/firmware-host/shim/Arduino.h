@@ -54,6 +54,15 @@ inline void analogWrite(uint8_t pin, int v) { g_pin_pwm[pin] = v; }
 inline int analogRead(uint8_t pin) { return g_analog[pin]; }
 inline unsigned long pulseIn(uint8_t pin, uint8_t, unsigned long) { return g_echo_us[pin]; }
 
+// random() gaya Arduino, deterministik supaya pengujian bisa diulang
+extern unsigned long g_rand_state;
+inline void randomSeed(unsigned long s) { (void)s; }
+inline long random(long lo, long hi) {
+  if (hi <= lo) return lo;
+  g_rand_state = g_rand_state * 1103515245UL + 12345UL;
+  return lo + (long)((g_rand_state >> 16) % (unsigned long)(hi - lo));
+}
+
 // ---------- Serial palsu ----------
 class SerialShim {
  public:

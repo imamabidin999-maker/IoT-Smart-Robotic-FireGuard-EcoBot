@@ -1,7 +1,7 @@
 /*
-  ecobot/sim.js — robot EcoBot virtual untuk mode Demo dan pengujian.
-  Urutan sensor dan ambang batas sama dengan firmware (firmware/ecobot_uno):
-    0 Depan, 1 Belakang, 2 Kiri, 3 Kanan, 4 Capit, 5 Bin (jarak ke permukaan sampah)
+  ecobot/sim.js — robot EcoBot (penyapu) virtual untuk mode Demo dan pengujian.
+  Urutan sensor, ambang batas, dan nama status sengaja sama dengan firmware (firmware/ecobot_uno):
+    0 Depan, 1 Kiri-depan, 2 Kanan-depan, 3 Kiri, 4 Kanan, 5 Wadah (jarak ke permukaan sampah)
 */
 (function (root) {
   'use strict';
@@ -11,24 +11,17 @@
     : root.Kopak.sim;
   const { VirtualRobot, clamp, rnd } = core;
 
-  const TH = { det: 60, reach: 15, binE: 20, binF: 4, binFull: 95 };
-  const FAR = [142, 180, 156, 138, 150];         // jarak "kosong" tiap sensor (cm)
-  const NEAR_BY_LEVEL = [null, 55, 11];          // jarak saat level 1 dan 2
-  const ANG = { clawOpen: 90, clawClosed: 25, armDown: 10, armUp: 150 };
+  const TH = { det: 50, near: 20, side: 10, binE: 20, binF: 4, binFull: 95 };
+  const LIFT = { up: 80, down: 20 };
+  const BRUSH = { min: 35, auto: 70, rampPerS: 100 / 0.6 };
+  const FAR = [150, 120, 130, 90, 85];             // jarak "kosong" tiap sensor (cm)
+  const SIDE = (i) => i === 3 || i === 4;
+  const SWEEP_PWM = 110, AVOID_PWM = 130, STEER = 35;
+  const AVOID_BACK_S = 0.45, TURN_EVERY_S = 12;
 
-  // urutan pengambilan: [waktu (detik), aksi]
-  const PICK_STEPS = [
-    [0.0, 'armDown'], [0.0, 'clawOpen'],
-    [0.9, 'clawClose'],
-    [1.6, 'armUp'],
-    [2.9, 'clawOpen'],
-    [3.6, 'armDown'], [3.6, 'clawClose'],
-    [4.4, 'done'],
-  ];
-
-  function level(d, reach) {
+  function level(i, d) {
     if (d <= 0) return 0;
-    if (d <= reach) return 2;
+    if (d <= (SIDE(i) ? TH.side : TH.near)) return 2;
     if (d <= TH.det) return 1;
     return 0;
   }
@@ -36,30 +29,31 @@
   class EcoBotSim extends VirtualRobot {
     constructor(emit) {
       super(emit, { robot: 'ecobot', mode: 'M' });
-      this.forced = [0, 0, 0, 0, 0];            // paksa level sensor 0..4 (demo)
-      this.d = FAR.slice();                      // jarak terukur 0..4
+      this.fw = '2.0.0-sim';
+      this.forced = [0, 0, 0, 0, 0];                 // paksa level sensor 0..4 (demo)
+      this.d = FAR.slice();
       this.binPct = 38;
-      this.count = 0;
+      this.brushTarget = 0;
+      this.brushOut = 0;
+      this.brushOnS = 0;
+      this.liftUp = true;                            // posisi istirahat: sapu terangkat
+      this.lift = LIFT.up;
       this.state = 'manual';
       this.stT = 0;
-      this.claw = ANG.clawClosed;               // posisi istirahat: capit tertutup, lengan turun
-      this.arm = ANG.armDown;
-      this.clawTarget = ANG.clawClosed;
-      this.armTarget = ANG.armDown;
-      this.clawClosedCmd = true;
-      this.armUpCmd = false;
-      this.picking = false;
-      this.pickT = 0;
-      this.pickIdx = 0;
+      this.turnDir = 1;
+      this.turnS = 0.7;
+      this.sinceTurn = 0;
+      this.binAcc = 0;
     }
 
     info() {
       return {
-        t: 'info', robot: 'ecobot', fw: this.fw,
-        us: ['Depan', 'Belakang', 'Kiri', 'Kanan', 'Capit', 'Bin'],
+        t: 'info', robot: 'ecobot', kind: 'sweeper', fw: this.fw,
+        us: ['Depan', 'Kiri-depan', 'Kanan-depan', 'Kiri', 'Kanan', 'Wadah'],
         pins: ['A0', 'A1', 'A2', 'A3', 'A4', 'D13'],
-        th: { det: TH.det, reach: TH.reach, grab: 12, binE: TH.binE, binF: TH.binF },
-        ang: ANG,
+        th: { det: TH.det, near: TH.near, side: TH.side, binE: TH.binE, binF: TH.binF },
+        lift: LIFT,
+        brush: { pwm: 1, min: BRUSH.min, auto: BRUSH.auto },
       };
     }
 
@@ -67,110 +61,139 @@
 
     telemetry() {
       const t = this.commonTel();
-      t.st = this.mode === 'M' ? (this.picking ? 'pick' : 'manual') : this.state;
+      t.st = this.mode === 'M' ? 'manual' : this.state;
       t.d = this.d.map((v) => (v > 0 ? Math.round(v) : -1)).concat([Math.round(this.binDist)]);
-      t.l = this.d.map((v, i) => level(v, i === 4 ? 12 : TH.reach)).concat([0]);
+      t.l = this.d.map((v, i) => level(i, v)).concat([0]);
       t.bin = Math.round(this.binPct);
-      t.cl = this.clawTarget === ANG.clawClosed ? 1 : 0;
-      t.ar = this.armTarget === ANG.armUp ? 1 : 0;
-      t.ca = Math.round(this.claw);
-      t.aa = Math.round(this.arm);
-      t.n = this.count;
+      t.br = Math.round(this.brushOut);
+      t.bt = this.brushTarget;
+      t.lf = this.liftUp ? 1 : 0;
+      t.la = Math.round(this.lift);
+      t.sw = Math.floor(this.brushOnS);
       return t;
     }
 
     /** dipakai demo: klik kartu sensor -> paksa level 0/1/2 */
     force(idx, lvl) { if (idx >= 0 && idx < this.forced.length) this.forced[idx] = lvl; }
-    /** dipakai demo: kosongkan bin */
+    /** dipakai demo: kosongkan wadah */
     resetBin() { this.binPct = 4; }
 
+    _brush(pct) {
+      pct = clamp(Math.round(pct), 0, 100);
+      if (pct > 0 && pct < BRUSH.min) pct = BRUSH.min;
+      this.brushTarget = pct;
+    }
+
     command(cmd, a) {
-      if (cmd === 'CLAW') {
-        if (this.mode !== 'M' || this.picking) return true;
-        this.clawClosedCmd = a[0] === '1';
-        this.clawTarget = this.clawClosedCmd ? ANG.clawClosed : ANG.clawOpen;
+      if (cmd === 'BRUSH') {
+        if (this.mode !== 'M') return true;
+        const v = Number(a[0]);
+        if (isFinite(v)) this._brush(v);
         return true;
       }
-      if (cmd === 'ARM') {
-        if (this.mode !== 'M' || this.picking) return true;
-        this.armUpCmd = a[0] === '1';
-        this.armTarget = this.armUpCmd ? ANG.armUp : ANG.armDown;
-        return true;
-      }
-      if (cmd === 'PICK') {
-        if (!this.picking && this.binPct < TH.binFull) this._startPick();
+      if (cmd === 'LIFT') {
+        if (this.mode !== 'M') return true;
+        this.liftUp = a[0] === '1';
         return true;
       }
       return false;
     }
 
     onModeChange() {
-      if (this.picking) { this.armTarget = ANG.armDown; this.clawTarget = ANG.clawClosed; }
-      this.picking = false;
-      this.state = this.mode === 'M' ? 'manual' : 'roam';
+      this._brush(0);
+      this.liftUp = true;
+      this.state = this.mode === 'M' ? 'manual' : 'sweep';
       this.stT = 0;
+      this.sinceTurn = 0;
       this.sp = 0;
     }
-    onStop() {
-      this.onModeChange();
-      this.clawTarget = this.claw; this.armTarget = this.arm;   // berhenti di posisi sekarang
-    }
+    onStop() { this.onModeChange(); }
 
-    _startPick() {
-      this.picking = true;
-      this.pickT = 0;
-      this.pickIdx = 0;
-      this.sp = 0;
-    }
-
-    _pickStep(dt) {
-      this.pickT += dt;
-      while (this.pickIdx < PICK_STEPS.length && this.pickT >= PICK_STEPS[this.pickIdx][0]) {
-        const act = PICK_STEPS[this.pickIdx][1];
-        if (act === 'armDown') this.armTarget = ANG.armDown;
-        else if (act === 'armUp') this.armTarget = ANG.armUp;
-        else if (act === 'clawOpen') this.clawTarget = ANG.clawOpen;
-        else if (act === 'clawClose') this.clawTarget = ANG.clawClosed;
-        else if (act === 'done') {
-          this.picking = false;
-          this.count++;
-          this.binPct = Math.min(100, this.binPct + 6 + Math.floor(Math.random() * 4));
-          this.forced = this.forced.map(() => 0);        // objeknya sudah diambil
-          this.clawTarget = ANG.clawClosed;
-          this.state = 'roam';
-        }
-        this.pickIdx++;
-      }
-    }
+    _go(state) { this.state = state; this.stT = 0; }
 
     step(dt) {
-      // sensor: nilai target tergantung level paksa
+      // sensor menuju jarak target sesuai level paksa
       for (let i = 0; i < 5; i++) {
         const lv = this.forced[i];
-        const target = lv === 0 ? FAR[i] : (i === 4 && lv === 2 ? 10 : NEAR_BY_LEVEL[lv]);
-        this.d[i] += (target + rnd(1.5) - this.d[i]) * Math.min(1, dt * 6);
+        const target = lv === 0 ? FAR[i] : (lv === 1 ? 35 : (SIDE(i) ? 7 : 12));
+        this.d[i] += (target + rnd(1.2) - this.d[i]) * Math.min(1, dt * 6);
       }
 
-      // servo bergerak halus (tidak lompat, meniru firmware)
-      const sMove = 240 * dt;
-      this.claw += clamp(this.clawTarget - this.claw, -sMove, sMove);
-      this.arm += clamp(this.armTarget - this.arm, -sMove, sMove);
+      // servo pengangkat & motor sapu bergerak halus (meniru firmware)
+      const liftTarget = this.liftUp ? LIFT.up : LIFT.down;
+      this.lift += clamp(liftTarget - this.lift, -200 * dt, 200 * dt);
+      if (this.brushOut < this.brushTarget) {
+        const start = this.brushOut === 0 ? BRUSH.min : this.brushOut;
+        this.brushOut = Math.min(this.brushTarget, start + BRUSH.rampPerS * dt);
+      } else {
+        this.brushOut = this.brushTarget;
+      }
+      if (this.brushOut > 0) this.brushOnS += dt;
 
       this.stT += dt;
-      if (this.picking) { this.sp = 0; this._pickStep(dt); return; }
+      if (this.mode === 'M') { this.sp = this.manualPwm(); this._fill(dt); return; }
+      this._auto(dt);
+      this._fill(dt);
+    }
 
-      if (this.mode === 'M') { this.sp = this.manualPwm(); return; }
+    // demo: wadah perlahan terisi selama sapu berputar sambil robot bergerak
+    _fill(dt) {
+      if (this.brushOut > 0 && this.sp > 0 && this.lift < LIFT.down + 10) {
+        this.binPct = Math.min(100, this.binPct + dt * 0.35);
+      }
+    }
 
-      // ---------- otomatis ----------
-      const lv = this.d.map((v, i) => level(v, i === 4 ? 12 : TH.reach));
-      if (this.binPct >= TH.binFull) { this.state = 'full'; this.sp = 0; return; }
-      if (this.state === 'full') this.state = 'roam';
+    _auto(dt) {
+      const lv = this.d.map((v, i) => level(i, v));
+      if (this.binPct >= TH.binFull) {
+        if (this.state !== 'full') this._go('full');
+        this.sp = 0; this._brush(0); this.liftUp = true;
+        return;
+      }
+      if (this.state === 'full') { this._go('sweep'); this.sinceTurn = 0; }
 
-      if (lv[0] === 2 || lv[4] === 2) { this.state = 'pick'; this._startPick(); return; }
-      if (lv[0] === 1 || lv[4] === 1) { this.state = 'approach'; this.sp = 120; return; }
-      if (lv[2] >= 1 || lv[3] >= 1) { this.state = 'align'; this.sp = 130; return; }
-      this.state = 'roam';
-      this.sp = 110;
+      const blocked = lv[0] === 2 || lv[1] === 2 || lv[2] === 2;
+      switch (this.state) {
+        case 'sweep':
+          this.liftUp = false;
+          if (Math.abs(this.lift - LIFT.down) <= 10) this._brush(BRUSH.auto);
+          this.sinceTurn += dt;
+          if (blocked) { this._startTurn(this._freerSide(), 'avoid'); break; }
+          if (this.sinceTurn > TURN_EVERY_S) { this._startTurn(Math.random() < 0.5 ? 1 : -1, 'turn'); break; }
+          this.sp = (lv[3] === 2 || lv[4] === 2) ? SWEEP_PWM - STEER / 2 : SWEEP_PWM;
+          break;
+        case 'avoid':
+          this._brush(0);
+          this.liftUp = true;
+          this.sp = AVOID_PWM;
+          if (this.stT > AVOID_BACK_S + this.turnS) {
+            // simulasi: setelah berputar, rintangan tidak lagi di depan robot
+            for (let i = 0; i < 3; i++) this.forced[i] = 0;
+            this._go('sweep'); this.sinceTurn = 0;
+          }
+          break;
+        case 'turn':
+          if (blocked) { this._startTurn(this._freerSide(), 'avoid'); break; }
+          this.sp = AVOID_PWM;
+          if (this.stT > this.turnS) { this._go('sweep'); this.sinceTurn = 0; }
+          break;
+        default:
+          this._go('sweep');
+      }
+    }
+
+    _startTurn(dir, state) {
+      this.turnDir = dir;
+      this.turnS = 0.45 + Math.random() * 0.55;
+      this._go(state);
+    }
+
+    _freerSide() {
+      const sp = (i) => (this.forced[i] === 0 ? FAR[i] : this.d[i]);
+      const left = Math.min(sp(1), sp(3));
+      const right = Math.min(sp(2), sp(4));
+      if (Math.abs(left - right) < 5) return Math.random() < 0.5 ? 1 : -1;
+      return right > left ? 1 : -1;
     }
   }
 

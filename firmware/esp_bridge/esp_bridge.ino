@@ -152,6 +152,7 @@ static void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t lengt
     case WStype_DISCONNECTED:
       LOG("[ws] klien %u putus\n", num);
       forwardToUno("DRV 0 0");          // dashboard hilang: pastikan robot tidak melaju terus
+      forwardToUno("BRUSH 0");          // EcoBot: matikan sapu (FireGuard mengabaikan perintah ini)
       break;
     case WStype_TEXT: {
       char buf[64];

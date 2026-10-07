@@ -1,21 +1,22 @@
 /*
-  EcoBot — firmware Arduino Uno
+  EcoBot (robot penyapu) — firmware Arduino Uno
   ------------------------------------------------------------------
   Tugas Uno di robot ini:
-    - baca 6 sensor ultrasonik HC-SR04 (Depan, Belakang, Kiri, Kanan, Capit, Bin)
-    - gerakkan motor lewat L298N (manual dari dashboard, atau otomatis)
-    - gerakkan capit dan lengan (2 servo), jalankan urutan ambil sampah -> buang ke bin
+    - baca 6 sensor ultrasonik HC-SR04 (Depan, Kiri-depan, Kanan-depan, Kiri, Kanan, Wadah)
+    - gerakkan roda lewat L298N (manual dari dashboard, atau otomatis)
+    - putar motor sapu (sikat) lewat modul MOSFET di satu pin PWM
+    - angkat / turunkan sapu dengan mini servo
     - kirim telemetri JSON ke ESP (lewat Serial 57600) dan terima perintah teks
 
-  Format pesan lengkap ada di docs/PROTOKOL.md.
+  Format pesan lengkap ada di docs/PROTOKOL.md, wiring di docs/WIRING.md.
 
   PENTING soal Serial: Uno cuma punya satu Serial hardware (pin 0/1) dan itu juga
   dipakai USB. Saat upload sketch, LEPAS kabel TX/RX ke ESP dulu, pasang lagi setelah selesai.
 
-  Kenapa trigger ultrasonik dipasangkan? Uno hanya punya 20 pin. 6 sensor x 2 pin = 12,
-  ditambah L298N (6), servo (2), dan baterai (1) tidak muat. Solusinya tiga pasang sensor
-  berbagi satu pin TRIG. Sensor dalam satu pasang sengaja dipilih yang arahnya saling
-  membelakangi (depan-belakang, kiri-kanan, capit-bin) supaya tidak saling mengganggu.
+  Kenapa trigger ultrasonik dipasangkan? Uno hanya punya 20 pin, dan robot ini memakai semuanya:
+  ESP 2, L298N 6, motor sapu 1, servo 1, baterai 1, ultrasonik 9. Enam HC-SR04 butuh 12 pin kalau
+  sendiri-sendiri, jadi tiga pasang sensor berbagi satu pin TRIG. Pasangannya dipilih yang arahnya
+  berjauhan (depan-wadah, kiri depan-kanan depan, kiri-kanan) supaya tidak saling mengganggu.
   Pengukuran tetap satu sensor per satu waktu (lihat usStep), jadi hasilnya tidak tercampur.
 
   Semua yang mungkin perlu Anda ubah ada di bagian KONFIGURASI paling atas.
@@ -26,10 +27,11 @@
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
-#define FW_VERSION      "1.0.0"
+#define FW_VERSION      "2.0.0"
 #define SERIAL_BAUD     57600
 
-// ---- L298N. Sisi kiri = channel A, sisi kanan = channel B ----
+// ---- L298N (roda). Sisi kiri = channel A, sisi kanan = channel B ----
+// Cabut jumper kecil di pin ENA & ENB modul L298N, lalu sambungkan ke D5 & D6.
 #define PIN_ENA         5      // PWM
 #define PIN_IN1         7
 #define PIN_IN2         8
@@ -39,25 +41,30 @@
 #define INVERT_LEFT     0      // ganti 1 kalau roda kiri berputar terbalik
 #define INVERT_RIGHT    0      // ganti 1 kalau roda kanan berputar terbalik
 
-// ---- servo ----
-#define PIN_CLAW        3
-#define PIN_ARM         11
-#define CLAW_OPEN_ANGLE   90   // sesuaikan dengan capit Anda (jangan sampai servo mentok & berdengung)
-#define CLAW_CLOSED_ANGLE 25
-#define ARM_DOWN_ANGLE    10   // lengan turun (posisi mengambil)
-#define ARM_UP_ANGLE      150  // lengan naik melewati bin (posisi membuang)
+// ---- motor sapu (sikat berputar) ----
+#define PIN_BRUSH       3      // PWM, ke pin SIG/PWM modul MOSFET
+#define BRUSH_USE_PWM   1      // 1 = modul MOSFET (kecepatan bisa diatur). 0 = relay (hanya nyala/mati)
+#define BRUSH_ACTIVE_HIGH 1    // hanya untuk relay: modul relay biasanya aktif LOW -> ganti jadi 0
+#define BRUSH_MIN_PCT   35     // di bawah ini motor sapu biasanya tidak kuat berputar
+#define BRUSH_AUTO_PCT  70     // kecepatan sapu di mode otomatis (70% dari baterai 2S ±5,9 V, aman untuk motor 3-6 V)
+#define BRUSH_RAMP_MS   600UL  // dari 0 ke 100% dinaikkan pelan-pelan, supaya lonjakan arus tidak me-reset Uno
+
+// ---- servo pengangkat sapu ----
+#define PIN_LIFT        11
+#define LIFT_DOWN_ANGLE 20     // sapu menyentuh lantai (sesuaikan dengan robot Anda)
+#define LIFT_UP_ANGLE   80     // sapu terangkat
 
 // ---- ultrasonik: 3 pin TRIG dipakai berpasangan, 6 pin ECHO terpisah ----
-// indeks sensor: 0 Depan, 1 Belakang, 2 Kiri, 3 Kanan, 4 Capit, 5 Bin
+// indeks sensor: 0 Depan, 1 Kiri-depan, 2 Kanan-depan, 3 Kiri, 4 Kanan, 5 Wadah
 #define US_COUNT        6
-static const uint8_t US_TRIG[US_COUNT] = { 2, 2, 4, 4, 12, 12 };
+static const uint8_t US_TRIG[US_COUNT] = { 2, 4, 4, 12, 12, 2 };
 static const uint8_t US_ECHO[US_COUNT] = { A0, A1, A2, A3, A4, 13 };
 #define US_DEPAN        0
-#define US_BELAKANG     1
-#define US_KIRI         2
-#define US_KANAN        3
-#define US_CAPIT        4
-#define US_BIN          5
+#define US_KIDEPAN      1
+#define US_KADEPAN      2
+#define US_KIRI         3
+#define US_KANAN        4
+#define US_WADAH        5
 
 // ---- baterai (opsional) ----
 // Pasang pembagi tegangan (2 resistor sama, mis. 10k + 10k) dari + baterai ke A5,
@@ -67,86 +74,84 @@ static const uint8_t US_ECHO[US_COUNT] = { A0, A1, A2, A3, A4, 13 };
 #define BAT_DIVIDER_X100 200
 
 // ---- jarak (cm) ----
-#define DETECT_CM       60     // objek dianggap "terdeteksi"
-#define REACH_CM        15     // sangat dekat (sensor Depan/Kiri/Kanan/Belakang)
-#define GRAB_CM         12     // objek sudah di dalam jangkauan capit (sensor Capit)
-#define OBSTACLE_CM     20     // di bawah ini & ada benda di samping -> dianggap dinding, bukan sampah
-#define SIDE_WALL_CM    30
-#define GUARD_CM        6      // mode manual: tahan gerak maju/mundur kalau sedekat ini
+#define DETECT_CM       50     // benda dianggap "terdeteksi" (tampilan dashboard)
+#define NEAR_CM         20     // depan / serong depan: sudah dekat
+#define SIDE_NEAR_CM    10     // kiri / kanan: sudah dekat
+#define OBST_CM         22     // mode otomatis: benda di depan sedekat ini -> menghindar
+#define DIAG_CM         18     // sama, untuk sensor serong kiri/kanan depan
+#define SIDE_KEEP_CM    8      // mode otomatis: menjauh sedikit kalau samping sedekat ini
+#define GUARD_CM        6      // mode manual: tahan gerak maju kalau ada benda sedekat ini di depan
 #define MANUAL_COLLISION_GUARD 1
 #define US_HYST_CM      3
-#define PICK_CONFIRM_MS 400UL  // objek harus terlihat stabil selama ini (robot berhenti) sebelum capit bergerak
 
-// Ultrasonik tidak bisa membedakan sampah dari dinding. Dua cara membantu:
-//  0 (bawaan): benda di depan DAN ada benda di samping (kiri/kanan) -> dianggap dinding/sudut ruangan.
-//  1         : pasang sensor Depan LEBIH TINGGI dari sampah (mis. di atas bin). Sampah yang pendek lolos dari
-//              sensor Depan dan hanya terlihat sensor Capit (rendah), sedangkan dinding/rintangan tinggi
-//              terlihat keduanya -> dianggap rintangan.
-#define DEPAN_SENSOR_HIGH 0
-
-// ---- penampung sampah ----
-// Sensor Bin dipasang di tepi atas bin, menghadap ke bawah.
-#define BIN_EMPTY_CM    20     // jarak sensor ke dasar bin saat kosong (ukur sendiri!)
+// ---- wadah sampah ----
+// Sensor Wadah dipasang di atas wadah, menghadap ke bawah ke dasar wadah.
+#define BIN_EMPTY_CM    20     // jarak sensor ke dasar wadah saat kosong (ukur sendiri!)
 #define BIN_FULL_CM     4      // jarak sensor ke permukaan sampah saat dianggap penuh
-#define BIN_FULL_PCT    95     // di atas ini: pemungutan otomatis berhenti
+#define BIN_FULL_PCT    95     // di atas ini: menyapu otomatis berhenti
 
-// ---- motor ----
+// ---- motor roda ----
 #define MIN_PWM         70
 #define DEFAULT_SPEED   160
-#define ROAM_PWM        110
-#define APPROACH_PWM    90
-#define ALIGN_PWM       120
+#define SWEEP_PWM       110    // maju pelan saat menyapu supaya sampah sempat tersapu
+#define STEER_PWM       35     // selisih kecepatan kiri-kanan saat menjauhi dinding samping
 #define AVOID_PWM       130
+#define TURN_PWM        130
 
 // ---- waktu ----
 #define DEADMAN_MS      600UL
 #define TEL_EVERY_MS    250UL
 #define US_STEP_MS      30UL           // satu sensor diukur tiap 30 ms -> semua 6 sensor ~180 ms
 #define US_TIMEOUT_US   15000UL        // ~2,5 m
-#define SERVO_STEP_DEG  4              // servo digerakkan bertahap supaya arus tidak melonjak
+#define SERVO_STEP_DEG  3              // servo digerakkan bertahap supaya arus tidak melonjak
 #define SERVO_STEP_MS   15UL
-#define ROAM_TURN_EVERY_MS 7000UL      // tiap sekian ms, belok sebentar agar area tersapu
-#define ROAM_TURN_MS    600UL
+#define AVOID_BACK_MS   450UL          // mundur sebentar (tidak ada sensor belakang, jadi jangan lama)
+#define TURN_MIN_MS     450UL          // lama berputar menghindar: acak di antara min..max
+#define TURN_MAX_MS     1000UL
+#define SWEEP_TURN_EVERY_MS 12000UL    // tiap sekian ms tanpa rintangan, belok acak supaya area lebih rata tersapu
 
 // ==================================================================
 //  State
 // ==================================================================
 enum Mode : uint8_t { MODE_MANUAL = 0, MODE_AUTO = 1 };
-enum State : uint8_t { ST_MANUAL, ST_ROAM, ST_APPROACH, ST_ALIGN, ST_AVOID, ST_PICK, ST_FULL };
+enum State : uint8_t { ST_MANUAL, ST_SWEEP, ST_AVOID, ST_TURN, ST_FULL };
 
 static Mode  mode = MODE_MANUAL;     // EcoBot menyala dalam mode manual (tidak langsung jalan sendiri)
 static State state = ST_MANUAL;
 static unsigned long stateSince = 0;
 static uint8_t substep = 0;
-static int8_t  alignDir = 0;
+static int8_t  turnDir = 1;          // +1 kanan, -1 kiri
+static unsigned long turnMs = 600;
+static unsigned long lastTurn = 0;
 
 // pembacaan ultrasonik: riwayat 3 nilai per sensor -> median
 static int   usHist[US_COUNT][3];
 static uint8_t usHistPos[US_COUNT];
 static int   usDist[US_COUNT];       // cm, -1 = tidak ada pantulan / di luar jangkauan
-static uint8_t usLvl[US_COUNT];      // 0 kosong, 1 terdeteksi, 2 jangkauan/dekat
+static uint8_t usLvl[US_COUNT];      // 0 kosong, 1 terdeteksi, 2 dekat
 static uint8_t usNext = 0;
 
 static int   binPct = 0;
 static int   binAcc16 = 0;           // binPct x 16, supaya penghalus tidak "macet" karena pembulatan
-static int   binDist = -1;
-static uint16_t pickCount = 0;
 
 static int   speedCap = DEFAULT_SPEED;
 static int   manualX = 0, manualY = 0;
 static unsigned long lastDrv = 0;
 static int   lastSpeed = 0;
 
-static Servo clawServo, armServo;
-static int   clawCur = CLAW_CLOSED_ANGLE, armCur = ARM_DOWN_ANGLE;
-static int   clawTarget = CLAW_CLOSED_ANGLE, armTarget = ARM_DOWN_ANGLE;
-static bool  clawClosedCmd = true, armUpCmd = false;
-static unsigned long lastServoStep = 0;
+// sapu
+static int   brushTarget = 0;        // 0..100 %
+static int   brushOut = 0;           // 0..100 %, naik bertahap menuju brushTarget
+static unsigned long lastBrushStep = 0;
+static unsigned long brushOnMs = 0;  // total lama sapu berputar
+static unsigned long lastBrushAcc = 0;
 
-static unsigned long pickStart = 0;
-static unsigned long pickSince = 0;    // sejak kapan syarat "siap ambil" terpenuhi terus-menerus (0 = belum)
-static uint8_t pickIdx = 0;
-static unsigned long lastRoamTurn = 0;
+// pengangkat sapu
+static Servo liftServo;
+static bool  liftUpCmd = true;       // posisi istirahat: sapu terangkat
+static int   liftCur = LIFT_UP_ANGLE;
+static int   liftTarget = LIFT_UP_ANGLE;
+static unsigned long lastServoStep = 0;
 
 #if HAS_BATTERY_SENSE
 static int   batMv = 0;
@@ -158,7 +163,7 @@ static uint8_t lineLen = 0;
 static bool  lineOverflow = false;
 
 // ==================================================================
-//  Motor
+//  Motor roda
 // ==================================================================
 static void driveSide(int v, uint8_t inA, uint8_t inB, uint8_t en) {
   if (v > 0)      { digitalWrite(inA, HIGH); digitalWrite(inB, LOW);  analogWrite(en, v > 255 ? 255 : v); }
@@ -195,21 +200,59 @@ static void driveVector(int x, int y, int cap) {
 }
 
 // ==================================================================
-//  Servo (bergerak bertahap)
+//  Motor sapu
 // ==================================================================
-static void servosUpdate(unsigned long now) {
-  if (now - lastServoStep < SERVO_STEP_MS) return;
-  lastServoStep = now;
-  if (clawCur < clawTarget)      clawCur = min(clawCur + SERVO_STEP_DEG, clawTarget);
-  else if (clawCur > clawTarget) clawCur = max(clawCur - SERVO_STEP_DEG, clawTarget);
-  if (armCur < armTarget)        armCur = min(armCur + SERVO_STEP_DEG, armTarget);
-  else if (armCur > armTarget)   armCur = max(armCur - SERVO_STEP_DEG, armTarget);
-  clawServo.write(clawCur);
-  armServo.write(armCur);
+static void brushSet(int pct) {
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  if (pct > 0 && pct < BRUSH_MIN_PCT) pct = BRUSH_MIN_PCT;
+  brushTarget = pct;
 }
 
-static void clawTo(bool closed) { clawClosedCmd = closed; clawTarget = closed ? CLAW_CLOSED_ANGLE : CLAW_OPEN_ANGLE; }
-static void armTo(bool up)      { armUpCmd = up;          armTarget  = up ? ARM_UP_ANGLE : ARM_DOWN_ANGLE; }
+static void brushWrite(int pct) {
+#if BRUSH_USE_PWM
+  analogWrite(PIN_BRUSH, (int)((long)pct * 255L / 100L));
+#else
+  bool on = pct > 0;
+  digitalWrite(PIN_BRUSH, (on == (BRUSH_ACTIVE_HIGH != 0)) ? HIGH : LOW);
+#endif
+}
+
+static void brushUpdate(unsigned long now) {
+  // hitung lama sapu berputar (untuk statistik di dashboard)
+  if (brushOut > 0) brushOnMs += now - lastBrushAcc;
+  lastBrushAcc = now;
+
+  if (now - lastBrushStep < 20) return;
+  lastBrushStep = now;
+#if BRUSH_USE_PWM
+  if (brushOut < brushTarget) {
+    int step = (int)(100UL * 20UL / BRUSH_RAMP_MS);
+    if (step < 1) step = 1;
+    // mulai langsung dari kecepatan minimum supaya motor tidak berdengung di bawah ambang
+    int next = brushOut == 0 ? BRUSH_MIN_PCT : brushOut + step;
+    brushOut = next > brushTarget ? brushTarget : next;
+  } else {
+    brushOut = brushTarget;          // turun / mati: langsung
+  }
+#else
+  brushOut = brushTarget;
+#endif
+  brushWrite(brushOut);
+}
+
+// ==================================================================
+//  Servo pengangkat sapu (bergerak bertahap)
+// ==================================================================
+static void liftTo(bool up) { liftUpCmd = up; liftTarget = up ? LIFT_UP_ANGLE : LIFT_DOWN_ANGLE; }
+
+static void servoUpdate(unsigned long now) {
+  if (now - lastServoStep < SERVO_STEP_MS) return;
+  lastServoStep = now;
+  if (liftCur < liftTarget)      liftCur = min(liftCur + SERVO_STEP_DEG, liftTarget);
+  else if (liftCur > liftTarget) liftCur = max(liftCur - SERVO_STEP_DEG, liftTarget);
+  liftServo.write(liftCur);
+}
 
 // ==================================================================
 //  Ultrasonik
@@ -242,16 +285,11 @@ static int median3(int a, int b, int c) {
 
 static uint8_t usLevelOf(uint8_t i, uint8_t prev, int d) {
   if (d < 0) return 0;
-  int reach = (i == US_CAPIT) ? GRAB_CM : REACH_CM;
+  int near = (i == US_KIRI || i == US_KANAN) ? SIDE_NEAR_CM : NEAR_CM;
   int h = US_HYST_CM;
-  if (d <= reach || (prev == 2 && d <= reach + h)) return 2;
+  if (d <= near || (prev == 2 && d <= near + h)) return 2;
   if (d <= DETECT_CM || (prev >= 1 && d <= DETECT_CM + h)) return 1;
   return 0;
-}
-
-// Bin hanya diukur saat lengan di bawah dan tidak sedang mengambil (lengan di atas bin akan menghalangi sensor)
-static bool binReadable() {
-  return state != ST_PICK && armCur <= ARM_DOWN_ANGLE + 15;
 }
 
 static void usStep() {
@@ -262,10 +300,10 @@ static void usStep() {
   usHist[i][usHistPos[i]] = d;
   usHistPos[i] = (usHistPos[i] + 1) % 3;
   int med = median3(usHist[i][0], usHist[i][1], usHist[i][2]);
+  usDist[i] = med;
 
-  if (i == US_BIN) {
-    binDist = med;
-    if (med >= 0 && binReadable()) {
+  if (i == US_WADAH) {
+    if (med >= 0) {
       long span = BIN_EMPTY_CM - BIN_FULL_CM;
       long pct = ((long)(BIN_EMPTY_CM - med) * 100L) / span;
       if (pct < 0) pct = 0;
@@ -273,141 +311,80 @@ static void usStep() {
       binAcc16 += ((int)pct * 16 - binAcc16) / 4;    // penghalus (rata-rata bergerak)
       binPct = (binAcc16 + 8) / 16;
     }
-    usDist[i] = med;
     usLvl[i] = 0;
     return;
   }
-  usDist[i] = med;
   usLvl[i] = usLevelOf(i, usLvl[i], med);
 }
 
 static bool validWithin(uint8_t i, int cm) { return usDist[i] >= 0 && usDist[i] <= cm; }
+// jarak untuk membandingkan ruang kosong: tidak ada pantulan = sangat lega
+static int space(uint8_t i) { return usDist[i] < 0 ? 999 : usDist[i]; }
 
 // ==================================================================
-//  Urutan ambil sampah (tidak memblokir loop)
-// ==================================================================
-//  t=0      lengan turun, capit buka
-//  t=900    capit menjepit
-//  t=1600   lengan naik (ke atas bin)
-//  t=2900   capit buka (sampah jatuh ke bin)
-//  t=3600   lengan turun, capit tutup (posisi istirahat)
-//  t=4400   selesai
-static void startPick(unsigned long now) {
-  state = ST_PICK; stateSince = now;
-  pickStart = now; pickIdx = 0;
-  motorStop();
-}
-
-static void pickStep(unsigned long now) {
-  unsigned long t = now - pickStart;
-  motorStop();
-  switch (pickIdx) {
-    case 0: armTo(false); clawTo(false); pickIdx = 1; break;
-    case 1: if (t >= 900)  { clawTo(true);  pickIdx = 2; } break;
-    case 2: if (t >= 1600) { armTo(true);   pickIdx = 3; } break;
-    case 3: if (t >= 2900) { clawTo(false); pickIdx = 4; } break;
-    case 4: if (t >= 3600) { armTo(false); clawTo(true); pickIdx = 5; } break;
-    case 5:
-      if (t >= 4400) {
-        pickCount++;
-        pickIdx = 0;
-        state = (mode == MODE_AUTO) ? ST_ROAM : ST_MANUAL;
-        stateSince = now;
-        lastRoamTurn = now;
-      }
-      break;
-  }
-}
-
-// ==================================================================
-//  Mode otomatis
+//  Mode otomatis: menyapu sambil menghindari rintangan
 // ==================================================================
 static void enterState(State s, unsigned long now) { state = s; stateSince = now; substep = 0; }
 
-static void autoStep(unsigned long now) {
-  if (state == ST_PICK) { pickStep(now); return; }
+static void startTurn(int8_t dir, unsigned long now, State s) {
+  turnDir = dir;
+  turnMs = (unsigned long)random((long)TURN_MIN_MS, (long)TURN_MAX_MS + 1);
+  enterState(s, now);
+}
 
+// arah belok yang lebih lega: +1 kanan, -1 kiri
+static int8_t freerSide() {
+  int left = min(space(US_KIDEPAN), space(US_KIRI));
+  int right = min(space(US_KADEPAN), space(US_KANAN));
+  if (abs(left - right) < 5) return random(0, 2) ? 1 : -1;
+  return right > left ? 1 : -1;
+}
+
+static void autoStep(unsigned long now) {
   if (binPct >= BIN_FULL_PCT) {
     if (state != ST_FULL) enterState(ST_FULL, now);
-    motorStop();
+    motorStop(); brushSet(0); liftTo(true);
     return;
   }
-  if (state == ST_FULL) enterState(ST_ROAM, now);
+  if (state == ST_FULL) { enterState(ST_SWEEP, now); lastTurn = now; }
 
-  bool sideNear = validWithin(US_KIRI, SIDE_WALL_CM) || validWithin(US_KANAN, SIDE_WALL_CM);
-  bool frontClose = validWithin(US_DEPAN, OBSTACLE_CM);
-#if DEPAN_SENSOR_HIGH
-  (void)sideNear;
-  bool wallLike = frontClose;
-  bool trashInReach = usLvl[US_CAPIT] == 2;
-  bool trashSeen = usLvl[US_CAPIT] >= 1;
-#else
-  bool wallLike = sideNear && frontClose;
-  bool trashInReach = usLvl[US_CAPIT] == 2 || usLvl[US_DEPAN] == 2;
-  bool trashSeen = usLvl[US_DEPAN] >= 1 || usLvl[US_CAPIT] >= 1;
-#endif
-
-  // 1. objek sudah di jangkauan capit -> berhenti, pastikan bacaan stabil, lalu ambil
-  if (trashInReach && !wallLike) {
-    if (!pickSince) pickSince = now;
-    motorStop();
-    if (now - pickSince >= PICK_CONFIRM_MS) { pickSince = 0; startPick(now); }
-    return;
-  }
-  pickSince = 0;
-
-  // 2. dinding / benda besar di depan -> menghindar
-  if (wallLike && state != ST_AVOID) { enterState(ST_AVOID, now); }
+  bool blocked = validWithin(US_DEPAN, OBST_CM) || validWithin(US_KIDEPAN, DIAG_CM) || validWithin(US_KADEPAN, DIAG_CM);
 
   switch (state) {
-    case ST_ROAM:
-      if (trashSeen) { enterState(ST_APPROACH, now); break; }
-      if (usLvl[US_KIRI] >= 1)  { alignDir = -1; enterState(ST_ALIGN, now); break; }
-      if (usLvl[US_KANAN] >= 1) { alignDir = 1;  enterState(ST_ALIGN, now); break; }
-      if (now - lastRoamTurn > ROAM_TURN_EVERY_MS) {
-        // belok sebentar ke kanan supaya area tersapu
-        if (now - lastRoamTurn > ROAM_TURN_EVERY_MS + ROAM_TURN_MS) lastRoamTurn = now;
-        motorSet(ALIGN_PWM, -ALIGN_PWM);
-      } else {
-        motorSet(ROAM_PWM, ROAM_PWM);
-      }
-      break;
-
-    case ST_APPROACH:
-      if (!trashSeen) {
-        if (now - stateSince > 800) enterState(ST_ROAM, now);
-        else motorSet(APPROACH_PWM, APPROACH_PWM);
-      } else {
-        stateSince = now;                      // masih melihat objek: reset timer "hilang"
-        motorSet(APPROACH_PWM, APPROACH_PWM);
-      }
-      break;
-
-    case ST_ALIGN: {
-      bool sideGone = (alignDir < 0) ? usLvl[US_KIRI] == 0 : usLvl[US_KANAN] == 0;
-      if (trashSeen) enterState(ST_APPROACH, now);
-      else if (sideGone || now - stateSince > 2500) enterState(ST_ROAM, now);
-      else motorSet(alignDir * ALIGN_PWM, -alignDir * ALIGN_PWM);    // putar di tempat menghadap objek
+    case ST_SWEEP: {
+      liftTo(false);
+      if (abs(liftCur - LIFT_DOWN_ANGLE) <= 10) brushSet(BRUSH_AUTO_PCT);  // sapu baru berputar setelah benar-benar turun
+      if (blocked) { motorStop(); startTurn(freerSide(), now, ST_AVOID); break; }
+      if (now - lastTurn > SWEEP_TURN_EVERY_MS) { startTurn(random(0, 2) ? 1 : -1, now, ST_TURN); break; }
+      int l = SWEEP_PWM, r = SWEEP_PWM;
+      if (validWithin(US_KIRI, SIDE_KEEP_CM))       r -= STEER_PWM;        // terlalu dekat dinding kiri: belok kanan sedikit
+      else if (validWithin(US_KANAN, SIDE_KEEP_CM)) l -= STEER_PWM;
+      motorSet(l, r);
       break;
     }
 
     case ST_AVOID: {
+      // mundur sebentar dengan sapu terangkat (supaya sampah tidak tertarik keluar), lalu putar ke sisi yang lega
       unsigned long t = now - stateSince;
-      bool rearClear = !(validWithin(US_BELAKANG, GUARD_CM + 4));
-      if (t < 500) {
-        if (rearClear) motorSet(-AVOID_PWM, -AVOID_PWM); else motorStop();          // mundur sebentar
-      } else if (t < 1150) {
-        int8_t away = (usDist[US_KIRI] >= 0 && (usDist[US_KANAN] < 0 || usDist[US_KIRI] < usDist[US_KANAN])) ? 1 : -1;
-        motorSet(away * AVOID_PWM, -away * AVOID_PWM);                              // putar menjauhi sisi yang lebih dekat
-      } else {
-        enterState(ST_ROAM, now);
-        lastRoamTurn = now;
-      }
+      brushSet(0);
+      liftTo(true);
+      if (t < AVOID_BACK_MS) motorSet(-AVOID_PWM, -AVOID_PWM);
+      else if (t < AVOID_BACK_MS + turnMs) motorSet(turnDir * TURN_PWM, -turnDir * TURN_PWM);
+      else { enterState(ST_SWEEP, now); lastTurn = now; }
+      break;
+    }
+
+    case ST_TURN: {
+      // belok acak tanpa rintangan: sapu tetap menyapu
+      if (blocked) { motorStop(); startTurn(freerSide(), now, ST_AVOID); break; }
+      if (now - stateSince < turnMs) motorSet(turnDir * TURN_PWM, -turnDir * TURN_PWM);
+      else { enterState(ST_SWEEP, now); lastTurn = now; }
       break;
     }
 
     default:
-      enterState(ST_ROAM, now);
+      enterState(ST_SWEEP, now);
+      lastTurn = now;
   }
 }
 
@@ -415,25 +392,22 @@ static void autoStep(unsigned long now) {
 //  Mode manual
 // ==================================================================
 static void manualStep(unsigned long now) {
-  if (state == ST_PICK) { pickStep(now); return; }
   if ((manualX != 0 || manualY != 0) && now - lastDrv > DEADMAN_MS) { manualX = 0; manualY = 0; }   // dead-man
   int y = manualY;
 #if MANUAL_COLLISION_GUARD
-  if (y > 0 && validWithin(US_DEPAN, GUARD_CM)) y = 0;
-  if (y < 0 && validWithin(US_BELAKANG, GUARD_CM)) y = 0;
+  if (y > 0 && (validWithin(US_DEPAN, GUARD_CM) || validWithin(US_KIDEPAN, GUARD_CM) || validWithin(US_KADEPAN, GUARD_CM))) y = 0;
 #endif
   driveVector(manualX, y, speedCap);
 }
 
 static void setMode(Mode m, unsigned long now) {
-  if (state == ST_PICK) { armTo(false); clawTo(true); }     // urutan dibatalkan: kembali ke posisi istirahat
   mode = m;
   manualX = manualY = 0;
   motorStop();
-  pickIdx = 0;
-  pickSince = 0;
-  lastRoamTurn = now;
-  enterState(m == MODE_AUTO ? ST_ROAM : ST_MANUAL, now);
+  brushSet(0);
+  liftTo(true);                        // posisi istirahat: sapu berhenti dan terangkat
+  lastTurn = now;
+  enterState(m == MODE_AUTO ? ST_SWEEP : ST_MANUAL, now);
 }
 
 // ==================================================================
@@ -441,29 +415,28 @@ static void setMode(Mode m, unsigned long now) {
 // ==================================================================
 static const char* stateName() {
   switch (state) {
-    case ST_ROAM:     return "roam";
-    case ST_APPROACH: return "approach";
-    case ST_ALIGN:    return "align";
-    case ST_AVOID:    return "avoid";
-    case ST_PICK:     return "pick";
-    case ST_FULL:     return "full";
-    default:          return "manual";
+    case ST_SWEEP: return "sweep";
+    case ST_AVOID: return "avoid";
+    case ST_TURN:  return "turn";
+    case ST_FULL:  return "full";
+    default:       return "manual";
   }
 }
 
 static void sendInfo() {
-  Serial.print(F("{\"t\":\"info\",\"robot\":\"ecobot\",\"fw\":\"" FW_VERSION
-                 "\",\"us\":[\"Depan\",\"Belakang\",\"Kiri\",\"Kanan\",\"Capit\",\"Bin\"]"
+  Serial.print(F("{\"t\":\"info\",\"robot\":\"ecobot\",\"kind\":\"sweeper\",\"fw\":\"" FW_VERSION
+                 "\",\"us\":[\"Depan\",\"Kiri-depan\",\"Kanan-depan\",\"Kiri\",\"Kanan\",\"Wadah\"]"
                  ",\"pins\":[\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"D13\"],\"th\":{\"det\":"));
-  Serial.print(DETECT_CM);   Serial.print(F(",\"reach\":"));
-  Serial.print(REACH_CM);    Serial.print(F(",\"grab\":"));
-  Serial.print(GRAB_CM);     Serial.print(F(",\"binE\":"));
-  Serial.print(BIN_EMPTY_CM);Serial.print(F(",\"binF\":"));
-  Serial.print(BIN_FULL_CM); Serial.print(F("},\"ang\":{\"clawOpen\":"));
-  Serial.print(CLAW_OPEN_ANGLE);   Serial.print(F(",\"clawClosed\":"));
-  Serial.print(CLAW_CLOSED_ANGLE); Serial.print(F(",\"armDown\":"));
-  Serial.print(ARM_DOWN_ANGLE);    Serial.print(F(",\"armUp\":"));
-  Serial.print(ARM_UP_ANGLE);      Serial.print(F("}}\n"));
+  Serial.print(DETECT_CM);       Serial.print(F(",\"near\":"));
+  Serial.print(NEAR_CM);         Serial.print(F(",\"side\":"));
+  Serial.print(SIDE_NEAR_CM);    Serial.print(F(",\"binE\":"));
+  Serial.print(BIN_EMPTY_CM);    Serial.print(F(",\"binF\":"));
+  Serial.print(BIN_FULL_CM);     Serial.print(F("},\"lift\":{\"up\":"));
+  Serial.print(LIFT_UP_ANGLE);   Serial.print(F(",\"down\":"));
+  Serial.print(LIFT_DOWN_ANGLE); Serial.print(F("},\"brush\":{\"pwm\":"));
+  Serial.print(BRUSH_USE_PWM);   Serial.print(F(",\"min\":"));
+  Serial.print(BRUSH_MIN_PCT);   Serial.print(F(",\"auto\":"));
+  Serial.print(BRUSH_AUTO_PCT);  Serial.print(F("}}\n"));
 }
 
 static void sendTelemetry(unsigned long now) {
@@ -475,11 +448,11 @@ static void sendTelemetry(unsigned long now) {
   Serial.print(F("],\"l\":["));
   for (uint8_t i = 0; i < US_COUNT; i++) { if (i) Serial.print(','); Serial.print((int)usLvl[i]); }
   Serial.print(F("],\"bin\":"));             Serial.print(binPct);
-  Serial.print(F(",\"cl\":"));               Serial.print(clawClosedCmd ? 1 : 0);
-  Serial.print(F(",\"ar\":"));               Serial.print(armUpCmd ? 1 : 0);
-  Serial.print(F(",\"ca\":"));               Serial.print(clawCur);
-  Serial.print(F(",\"aa\":"));               Serial.print(armCur);
-  Serial.print(F(",\"n\":"));                Serial.print(pickCount);
+  Serial.print(F(",\"br\":"));               Serial.print(brushOut);
+  Serial.print(F(",\"bt\":"));               Serial.print(brushTarget);
+  Serial.print(F(",\"lf\":"));               Serial.print(liftUpCmd ? 1 : 0);
+  Serial.print(F(",\"la\":"));               Serial.print(liftCur);
+  Serial.print(F(",\"sw\":"));               Serial.print(brushOnMs / 1000UL);
   Serial.print(F(",\"sp\":"));               Serial.print(lastSpeed);
   Serial.print(F(",\"cap\":"));              Serial.print(speedCap);
 #if HAS_BATTERY_SENSE
@@ -519,18 +492,18 @@ static void handleLine(char* line, unsigned long now) {
   if (!strcmp(cmd, "SPD") && a1) { speedCap = clampi(atol(a1), 0, 255); return; }
   if (!strcmp(cmd, "STOP")) {
     setMode(MODE_MANUAL, now);
-    clawTarget = clawCur;           // berhenti di posisi sekarang
-    armTarget = armCur;
     sendTelemetry(now);
     return;
   }
-  if (!strcmp(cmd, "CLAW") && a1) { if (mode == MODE_MANUAL && state != ST_PICK) clawTo(a1[0] == '1'); return; }
-  if (!strcmp(cmd, "ARM")  && a1) { if (mode == MODE_MANUAL && state != ST_PICK) armTo(a1[0] == '1');  return; }
-  if (!strcmp(cmd, "PICK")) {
-    if (state != ST_PICK && binPct < BIN_FULL_PCT) startPick(now);
-    sendTelemetry(now);
+  if (!strcmp(cmd, "BRUSH") && a1) {   // BRUSH <0..100>, 0 = mati
+    if (mode == MODE_MANUAL) { brushSet(clampi(atol(a1), 0, 100)); sendTelemetry(now); }
     return;
   }
+  if (!strcmp(cmd, "LIFT") && a1) {    // LIFT 1 = angkat, LIFT 0 = turunkan
+    if (mode == MODE_MANUAL) { liftTo(a1[0] == '1'); sendTelemetry(now); }
+    return;
+  }
+  // perintah lain (mis. PING yang sudah dijawab ESP) diabaikan
 }
 
 static void readSerial(unsigned long now) {
@@ -553,7 +526,9 @@ static void readSerial(unsigned long now) {
 void setup() {
   pinMode(PIN_ENA, OUTPUT); pinMode(PIN_IN1, OUTPUT); pinMode(PIN_IN2, OUTPUT);
   pinMode(PIN_ENB, OUTPUT); pinMode(PIN_IN3, OUTPUT); pinMode(PIN_IN4, OUTPUT);
+  pinMode(PIN_BRUSH, OUTPUT);
   motorStop();
+  brushWrite(0);                       // sapu harus mati dulu sebelum apa pun
 
   for (uint8_t i = 0; i < US_COUNT; i++) {
     pinMode(US_TRIG[i], OUTPUT);
@@ -563,17 +538,17 @@ void setup() {
     for (uint8_t k = 0; k < 3; k++) usHist[i][k] = -1;
   }
 
-  clawServo.attach(PIN_CLAW);
-  armServo.attach(PIN_ARM);
-  clawServo.write(clawCur);
-  armServo.write(armCur);
+  liftServo.attach(PIN_LIFT);
+  liftServo.write(liftCur);
 
   Serial.begin(SERIAL_BAUD);
+  randomSeed((unsigned long)analogRead(PIN_BATTERY) * 31UL + micros());
 
   unsigned long now = millis();
   setMode(MODE_MANUAL, now);
   // beberapa putaran awal supaya riwayat median terisi sebelum dipakai
   for (uint8_t i = 0; i < US_COUNT * 3; i++) usStep();
+  lastBrushAcc = millis();
   sendInfo();
 }
 
@@ -595,7 +570,8 @@ void loop() {
   if (mode == MODE_AUTO) autoStep(now);
   else                   manualStep(now);
 
-  servosUpdate(now);
+  brushUpdate(now);
+  servoUpdate(now);
 
   if (now - lastTel >= TEL_EVERY_MS) { lastTel = now; sendTelemetry(now); }
 }

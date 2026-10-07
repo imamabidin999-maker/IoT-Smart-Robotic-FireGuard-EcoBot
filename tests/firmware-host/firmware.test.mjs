@@ -86,7 +86,7 @@ const hosts = [];
 const mk = (bin) => { const h = new Host(bin); hosts.push(h); return h; };
 after(() => hosts.forEach((h) => h.close()));
 
-let binFG, binEB, binFGv;
+let binFG, binEB, binFGv, binEBr;
 before(() => {
   binFG = compile('fireguard', path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'));
   binEB = compile('ecobot', path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'));
@@ -97,6 +97,12 @@ before(() => {
   const vpath = path.join(build, 'fg_variant.ino');
   fs.writeFileSync(vpath, src);
   binFGv = compile('fireguard_variant', vpath);
+  const ebRelay = fs.readFileSync(path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'), 'utf8')
+    .replace('#define BRUSH_USE_PWM   1', '#define BRUSH_USE_PWM   0')
+    .replace('#define BRUSH_ACTIVE_HIGH 1', '#define BRUSH_ACTIVE_HIGH 0');
+  const rpath = path.join(build, 'eb_relay.ino');
+  fs.writeFileSync(rpath, ebRelay);
+  binEBr = compile('ecobot_relay', rpath);
 });
 
 // ====================================================================
@@ -320,10 +326,10 @@ test('FireGuard: telemetri datang ~4x per detik', async () => {
 });
 
 // ====================================================================
-//  EcoBot
+//  EcoBot (robot penyapu)
 // ====================================================================
-const EB = { ENA: 5, ENB: 6, IN1: 7, IN2: 8, IN3: 9, IN4: 10, CLAW: 3, ARM: 11,
-  E: { depan: 14, belakang: 15, kiri: 16, kanan: 17, capit: 18, bin: 13 } };
+const EB = { ENA: 5, ENB: 6, IN1: 7, IN2: 8, IN3: 9, IN4: 10, BRUSH: 3, LIFT: 11,
+  E: { depan: 14, kidepan: 15, kadepan: 16, kiri: 17, kanan: 18, wadah: 13 } };
 
 async function ebMotors(h) {
   const side = async (a, b, en) => {
@@ -334,115 +340,113 @@ async function ebMotors(h) {
   };
   return { l: await side(EB.IN1, EB.IN2, EB.ENA), r: await side(EB.IN3, EB.IN4, EB.ENB) };
 }
+const brushPwm = (h) => h.q('QW', EB.BRUSH);
+const liftAngle = (h) => h.q('QS', EB.LIFT);
 
-async function ebBoot(h, dists = {}) {
-  const d = Object.assign({ depan: 0, belakang: 0, kiri: 0, kanan: 0, capit: 0, bin: 20 }, dists);
+async function ebBoot(h, dists = {}, bin = 20) {
+  const d = Object.assign({ depan: 0, kidepan: 0, kadepan: 0, kiri: 0, kanan: 0, wadah: bin }, dists);
   for (const [k, cm] of Object.entries(d)) await h.echo(EB.E[k], cm);
   await h.init();
   await h.t(1500);
 }
 
-test('EcoBot: info & telemetri JSON valid, urutan sensor benar', async () => {
+test('EcoBot sapu: info & telemetri JSON valid, urutan sensor benar, posisi istirahat saat menyala', async () => {
   const h = mk(binEB);
-  await ebBoot(h, { depan: 50, belakang: 120, kanan: 25, capit: 10, bin: 12 });
+  await ebBoot(h, { depan: 50, kidepan: 120, kiri: 9, kanan: 25, wadah: 12 });
   const info = h.infos[0];
   assert.equal(info.robot, 'ecobot');
-  assert.deepEqual(info.us, ['Depan', 'Belakang', 'Kiri', 'Kanan', 'Capit', 'Bin']);
+  assert.equal(info.kind, 'sweeper');
+  assert.equal(info.fw, '2.0.0');
+  assert.deepEqual(info.us, ['Depan', 'Kiri-depan', 'Kanan-depan', 'Kiri', 'Kanan', 'Wadah']);
   assert.deepEqual(info.pins, ['A0', 'A1', 'A2', 'A3', 'A4', 'D13']);
-  assert.deepEqual(info.th, { det: 60, reach: 15, grab: 12, binE: 20, binF: 4 });
-  assert.deepEqual(info.ang, { clawOpen: 90, clawClosed: 25, armDown: 10, armUp: 150 });
+  assert.deepEqual(info.th, { det: 50, near: 20, side: 10, binE: 20, binF: 4 });
+  assert.deepEqual(info.lift, { up: 80, down: 20 });
+  assert.deepEqual(info.brush, { pwm: 1, min: 35, auto: 70 });
 
   await h.t(2500);
   const t = h.tel();
   assert.equal(t.m, 'M');
   assert.equal(t.st, 'manual');
-  assert.deepEqual(t.d, [50, 120, -1, 25, 10, 12], 'jarak tiap sensor, -1 = tidak ada pantulan');
-  assert.deepEqual(t.l, [1, 0, 0, 1, 2, 0], 'level: 1 terdeteksi, 2 jangkauan (Capit <= 12 cm)');
-  assert.ok(Math.abs(t.bin - 50) <= 2, `bin harus sekitar 50%, dapat ${t.bin}`);
-  assert.equal(t.cl, 1); assert.equal(t.ar, 0);
-  assert.equal(t.ca, 25); assert.equal(t.aa, 10);
-  assert.equal(t.n, 0);
+  assert.deepEqual(t.d, [50, 120, -1, 9, 25, 12], 'jarak tiap sensor, -1 = tidak ada pantulan');
+  assert.deepEqual(t.l, [1, 0, 0, 2, 1, 0], 'level: 1 terdeteksi (<= 50), 2 dekat (samping <= 10)');
+  assert.ok(Math.abs(t.bin - 50) <= 2, `wadah harus sekitar 50%, dapat ${t.bin}`);
+  assert.equal(t.br, 0); assert.equal(t.bt, 0);
+  assert.equal(t.lf, 1, 'sapu terangkat saat menyala');
+  assert.equal(t.la, 80);
+  assert.equal(t.sw, 0);
   assert.ok(!('bat' in t));
+  assert.equal(await brushPwm(h), 0, 'motor sapu mati saat menyala');
+  assert.equal(await liftAngle(h), 80);
 });
 
-test('EcoBot: kapasitas bin dihitung dari jarak (kosong 0%, penuh 100%)', async () => {
+test('EcoBot sapu: kapasitas wadah dihitung dari jarak (kosong 0%, penuh 100%)', async () => {
   const h = mk(binEB);
-  await ebBoot(h, { bin: 20 });
+  await ebBoot(h, {}, 20);
   await h.t(3000);
   assert.ok(h.tel().bin <= 2, `kosong, dapat ${h.tel().bin}`);
-  await h.echo(EB.E.bin, 4);
+  await h.echo(EB.E.wadah, 4);
   await h.t(4000);
   assert.ok(h.tel().bin >= 98, `penuh, dapat ${h.tel().bin}`);
-  await h.echo(EB.E.bin, 8);
+  await h.echo(EB.E.wadah, 8);
   await h.t(4000);
   assert.ok(Math.abs(h.tel().bin - 75) <= 3, `sekitar 75%, dapat ${h.tel().bin}`);
 });
 
-test('EcoBot manual: capit dan lengan bergerak bertahap ke sudut yang benar', async () => {
+test('EcoBot sapu manual: motor sapu naik pelan (soft-start), batas minimum, mati seketika, lama menyapu dihitung', async () => {
   const h = mk(binEB);
   await ebBoot(h);
-  await h.send('CLAW 0'); await h.t(120);
-  const mid = await h.q('QS', EB.CLAW);
-  assert.ok(mid > 25 && mid < 90, `servo bergerak bertahap, bukan lompat (sudut sementara ${mid})`);
-  await h.t(400);
-  assert.equal(await h.q('QS', EB.CLAW), 90);
-  assert.equal(h.tel().cl, 0);
-  assert.equal(h.tel().ca, 90);
-  await h.send('ARM 1'); await h.t(800);
-  assert.equal(await h.q('QS', EB.ARM), 150);
-  assert.equal(h.tel().ar, 1);
-  await h.send('ARM 0'); await h.send('CLAW 1'); await h.t(800);
-  assert.equal(await h.q('QS', EB.ARM), 10);
-  assert.equal(await h.q('QS', EB.CLAW), 25);
+  await h.send('BRUSH 100');
+  await h.t(60);
+  const mid = await brushPwm(h);
+  assert.ok(mid > 0 && mid < 255, `kecepatan sapu harus naik bertahap, bukan lompat (PWM sementara ${mid})`);
+  await h.t(800);
+  assert.equal(await brushPwm(h), 255);
+  await h.t(250);
+  assert.equal(h.tel().br, 100);
+  assert.equal(h.tel().bt, 100);
+
+  await h.send('BRUSH 20'); await h.t(60);
+  assert.equal(await brushPwm(h), Math.floor(35 * 255 / 100), 'di bawah batas minimum dinaikkan ke 35%');
+  await h.send('BRUSH 60'); await h.t(300);
+  assert.equal(await brushPwm(h), Math.floor(60 * 255 / 100));
+
+  await h.t(2500);
+  await h.send('BRUSH 0'); await h.t(30);
+  assert.equal(await brushPwm(h), 0, 'mati langsung, tanpa menunggu');
+  await h.t(250);
+  assert.ok(h.tel().sw >= 3, `lama menyapu dicatat, dapat ${h.tel().sw} detik`);
+  const sw = h.tel().sw;
+  await h.t(2000);
+  assert.equal(h.tel().sw, sw, 'saat sapu mati, hitungan tidak bertambah');
 });
 
-test('EcoBot: urutan ambil sampah (PICK) lengkap dan menambah hitungan', async () => {
+test('EcoBot sapu manual: servo pengangkat turun & naik bertahap', async () => {
   const h = mk(binEB);
   await ebBoot(h);
-  await h.send('PICK'); await h.t(100);
-  assert.equal(h.tel().st, 'pick');
-  let maxArm = 0, openSeen = false, closedAfterOpen = false;
-  for (let i = 0; i < 50; i++) {
-    await h.t(100);
-    const arm = await h.q('QS', EB.ARM), claw = await h.q('QS', EB.CLAW);
-    maxArm = Math.max(maxArm, arm);
-    if (claw === 90) openSeen = true;
-    if (openSeen && claw === 25) closedAfterOpen = true;
-    assert.deepEqual(await ebMotors(h), { l: 0, r: 0 }, 'motor diam selama mengambil');
-  }
-  assert.equal(maxArm, 150, 'lengan harus naik sampai atas bin');
-  assert.ok(openSeen && closedAfterOpen, 'capit harus membuka lalu menutup');
-  assert.equal(h.tel().n, 1);
-  assert.equal(h.tel().st, 'manual');
-  assert.equal(await h.q('QS', EB.ARM), 10);
-  assert.equal(await h.q('QS', EB.CLAW), 25);
-  assert.equal(h.tel().cl, 1);
-  assert.equal(h.tel().ar, 0);
+  await h.send('LIFT 0'); await h.t(60);
+  const mid = await liftAngle(h);
+  assert.ok(mid < 80 && mid > 20, `servo bergerak bertahap (sudut sementara ${mid})`);
+  await h.t(600);
+  assert.equal(await liftAngle(h), 20);
+  await h.t(250);
+  assert.equal(h.tel().lf, 0);
+  assert.equal(h.tel().la, 20);
+  await h.send('LIFT 1'); await h.t(700);
+  assert.equal(await liftAngle(h), 80);
 });
 
-test('EcoBot: CLAW/ARM ditolak saat mengambil; ganti mode saat mengambil = kembali ke posisi istirahat', async () => {
-  const h = mk(binEB);
+test('EcoBot sapu: modul relay (BRUSH_USE_PWM 0, aktif LOW) hanya nyala/mati', async () => {
+  const h = mk(binEBr);
   await ebBoot(h);
-  await h.send('PICK'); await h.t(2000);        // lengan sedang di atas
-  await h.send('ARM 0'); await h.send('CLAW 0'); await h.t(100);
-  assert.equal(h.tel().st, 'pick', 'perintah manual diabaikan saat urutan jalan');
-  await h.send('MODE A'); await h.t(1000);
-  assert.equal(await h.q('QS', EB.ARM), 10, 'lengan kembali turun');
-  assert.equal(await h.q('QS', EB.CLAW), 25, 'capit kembali menutup');
-  assert.notEqual(h.tel().st, 'pick');
-  assert.equal(h.tel().n, 0, 'urutan dibatalkan, tidak dihitung');
+  assert.equal(await h.q('QP', EB.BRUSH), 1, 'relay aktif LOW: HIGH = mati saat menyala');
+  await h.send('BRUSH 50'); await h.t(60);
+  assert.equal(await h.q('QP', EB.BRUSH), 0, 'LOW = sapu menyala');
+  await h.send('BRUSH 0'); await h.t(60);
+  assert.equal(await h.q('QP', EB.BRUSH), 1);
+  assert.equal(await brushPwm(h), 0, 'mode relay tidak memakai PWM');
 });
 
-test('EcoBot: PICK ditolak kalau bin penuh', async () => {
-  const h = mk(binEB);
-  await ebBoot(h, { bin: 4 });
-  await h.t(4000);
-  assert.ok(h.tel().bin >= 95);
-  await h.send('PICK'); await h.t(200);
-  assert.notEqual(h.tel().st, 'pick');
-});
-
-test('EcoBot manual: DRV, dead-man, dan pengaman tabrakan depan/belakang', async () => {
+test('EcoBot sapu manual: DRV, dead-man, dan pengaman tabrakan depan (termasuk serong)', async () => {
   const h = mk(binEB);
   await ebBoot(h, { depan: 100 });
   await h.send('DRV 0 100'); await h.t(100);
@@ -457,79 +461,125 @@ test('EcoBot manual: DRV, dead-man, dan pengaman tabrakan depan/belakang', async
   await h.send('DRV 100 0'); await h.t(100);
   assert.deepEqual(await ebMotors(h), { l: 160, r: -160 }, 'berputar di tempat tetap boleh');
   await h.send('DRV 0 -100'); await h.t(100);
-  assert.deepEqual(await ebMotors(h), { l: -160, r: -160 }, 'mundur boleh kalau belakang kosong');
+  assert.deepEqual(await ebMotors(h), { l: -160, r: -160 }, 'mundur boleh');
 
-  await h.echo(EB.E.belakang, 4);
+  await h.echo(EB.E.depan, 0);
+  await h.echo(EB.E.kadepan, 5);
   await h.t(1500);
-  await h.send('DRV 0 -100'); await h.t(100);
-  assert.deepEqual(await ebMotors(h), { l: 0, r: 0 }, 'mundur diblokir: ada benda 4 cm di belakang');
+  await h.send('DRV 0 100'); await h.t(100);
+  assert.deepEqual(await ebMotors(h), { l: 0, r: 0 }, 'maju diblokir: ada benda 5 cm di serong kanan depan');
 });
 
-test('EcoBot otomatis: menjelajah -> mendekati objek -> mengambil -> lanjut', async () => {
+test('EcoBot sapu otomatis: sapu turun dulu, baru berputar, lalu maju pelan', async () => {
   const h = mk(binEB);
   await ebBoot(h);
-  await h.send('MODE A'); await h.t(300);
+  await h.send('MODE A'); await h.t(60);
   assert.equal(h.tel().m, 'A');
-  assert.equal(h.tel().st, 'roam');
-  assert.deepEqual(await ebMotors(h), { l: 110, r: 110 });
-
-  await h.echo(EB.E.depan, 50);
-  await h.t(1500);
-  assert.equal(h.tel().st, 'approach');
-  assert.deepEqual(await ebMotors(h), { l: 90, r: 90 }, 'mendekat pelan');
-
-  await h.echo(EB.E.capit, 10);          // objek masuk jangkauan capit
-  await h.t(2000);                        // bacaan stabil dulu (400 ms) baru capit bergerak
-  assert.equal(h.tel().st, 'pick');
-  await h.echo(EB.E.depan, 0); await h.echo(EB.E.capit, 0);   // objek sudah terambil
-  await h.t(5000);
-  assert.equal(h.tel().n, 1);
-  assert.equal(h.tel().st, 'roam');
+  assert.equal(await brushPwm(h), 0, 'sapu belum berputar selama masih turun');
+  await h.t(1200);
+  assert.equal(await liftAngle(h), 20, 'sapu turun ke lantai');
+  assert.equal(await brushPwm(h), Math.floor(70 * 255 / 100), 'sapu berputar 70% di mode otomatis');
+  assert.deepEqual(await ebMotors(h), { l: 110, r: 110 }, 'maju pelan saat menyapu');
+  assert.equal(h.tel().st, 'sweep');
+  assert.equal(h.tel().lf, 0);
 });
 
-test('EcoBot otomatis: benda di depan + di samping dianggap dinding -> menghindar, bukan mengambil', async () => {
+test('EcoBot sapu otomatis: rintangan di depan -> sapu berhenti & terangkat, mundur, putar ke sisi yang lega, lanjut menyapu', async () => {
   const h = mk(binEB);
-  await ebBoot(h);
-  await h.send('MODE A'); await h.t(300);
-  await h.echo(EB.E.depan, 14);
-  await h.echo(EB.E.kiri, 20);
-  await h.t(1600);
-  let sawAvoid = false, reversed = false, pick = false;
-  for (let i = 0; i < 10; i++) {
-    await h.t(100);
+  await ebBoot(h, { kiri: 25, kidepan: 30 });           // sisi kiri sempit, kanan lega
+  await h.send('MODE A'); await h.t(1500);
+  assert.equal(h.tel().st, 'sweep');
+
+  await h.echo(EB.E.depan, 15);
+  let reversed = false, turnedRight = false, brushOffWhileAvoid = true, sawAvoid = false;
+  for (let i = 0; i < 25; i++) {
+    await h.t(60);
     const st = h.tel().st;
-    if (st === 'avoid') sawAvoid = true;
-    if (st === 'pick') pick = true;
     const m = await ebMotors(h);
+    if (st === 'avoid') {
+      sawAvoid = true;
+      if (await brushPwm(h) !== 0) brushOffWhileAvoid = false;
+    }
     if (m.l < 0 && m.r < 0) reversed = true;
+    if (m.l > 0 && m.r < 0) turnedRight = true;
   }
   assert.ok(sawAvoid, 'harus masuk state avoid');
-  assert.ok(reversed, 'harus mundur dulu karena belakang kosong');
-  assert.ok(!pick, 'tidak boleh mencoba mengambil dinding');
-  assert.equal(h.tel().n, 0);
+  assert.ok(reversed, 'mundur dulu');
+  assert.ok(turnedRight, 'berputar ke kanan (sisi yang lega)');
+  assert.ok(brushOffWhileAvoid, 'sapu mati selama menghindar');
+  assert.equal(h.tel().lf, 1, 'sapu terangkat saat menghindar');
+
+  await h.echo(EB.E.depan, 0);                           // rintangan sudah tidak di depan
+  await h.t(2500);
+  assert.equal(h.tel().st, 'sweep');
+  assert.equal(await brushPwm(h), Math.floor(70 * 255 / 100), 'sapu berputar lagi');
 });
 
-test('EcoBot otomatis: bin penuh -> berhenti total', async () => {
+test('EcoBot sapu otomatis: terlalu dekat dinding samping -> menjauh sedikit sambil tetap maju', async () => {
   const h = mk(binEB);
-  await ebBoot(h, { bin: 4 });
+  await ebBoot(h, { kiri: 6 });
+  await h.send('MODE A'); await h.t(1200);
+  assert.deepEqual(await ebMotors(h), { l: 110, r: 75 }, 'dinding kiri: roda kanan diperlambat (belok kanan)');
+  await h.echo(EB.E.kiri, 0); await h.echo(EB.E.kanan, 6);
+  await h.t(1200);
+  assert.deepEqual(await ebMotors(h), { l: 75, r: 110 }, 'dinding kanan: belok kiri');
+});
+
+test('EcoBot sapu otomatis: tanpa rintangan, sesekali belok acak (sapu tetap berputar)', async () => {
+  const h = mk(binEB);
+  await ebBoot(h);
+  await h.send('MODE A');
+  let sawTurn = false, brushDuringTurn = true;
+  for (let i = 0; i < 60; i++) {
+    await h.t(250);
+    if (h.tel().st === 'turn') {
+      sawTurn = true;
+      if (await brushPwm(h) === 0) brushDuringTurn = false;
+    }
+  }
+  assert.ok(sawTurn, 'dalam 15 detik harus ada belok acak');
+  assert.ok(brushDuringTurn, 'saat belok acak sapu tetap menyapu');
+});
+
+test('EcoBot sapu otomatis: wadah penuh -> berhenti, sapu mati & terangkat; dikosongkan -> lanjut', async () => {
+  const h = mk(binEB);
+  await ebBoot(h, {}, 4);
   await h.send('MODE A'); await h.t(4500);
   assert.equal(h.tel().st, 'full');
   assert.deepEqual(await ebMotors(h), { l: 0, r: 0 });
-  await h.echo(EB.E.bin, 20);            // bin dikosongkan
+  assert.equal(await brushPwm(h), 0);
+  assert.equal(await liftAngle(h), 80);
+  await h.echo(EB.E.wadah, 20);
   await h.t(5000);
-  assert.notEqual(h.tel().st, 'full');
-  assert.equal(h.tel().st, 'roam');
+  assert.equal(h.tel().st, 'sweep');
+  assert.equal(await brushPwm(h), Math.floor(70 * 255 / 100));
 });
 
-test('EcoBot: STOP menghentikan semua dan masuk manual; baris sampah tidak merusak', async () => {
+test('EcoBot sapu: BRUSH/LIFT diabaikan di mode otomatis; kembali manual = posisi istirahat', async () => {
   const h = mk(binEB);
   await ebBoot(h);
-  await h.send('MODE A'); await h.t(300);
+  await h.send('MODE A'); await h.t(1500);
+  await h.send('BRUSH 0'); await h.send('LIFT 1'); await h.t(300);
+  assert.equal(await brushPwm(h), Math.floor(70 * 255 / 100), 'mode otomatis yang mengatur sapu');
+  assert.equal(await liftAngle(h), 20);
+  await h.send('MODE M'); await h.t(800);
+  assert.equal(await brushPwm(h), 0);
+  assert.equal(await liftAngle(h), 80);
+  assert.deepEqual(await ebMotors(h), { l: 0, r: 0 });
+});
+
+test('EcoBot sapu: STOP menghentikan semua (roda, sapu) dan masuk manual; baris sampah tidak merusak', async () => {
+  const h = mk(binEB);
+  await ebBoot(h);
+  await h.send('MODE A'); await h.t(1500);
   assert.deepEqual(await ebMotors(h), { l: 110, r: 110 });
   await h.send('STOP'); await h.t(50);
   assert.equal(h.tel().m, 'M');
   assert.deepEqual(await ebMotors(h), { l: 0, r: 0 });
-  await h.send('Z'.repeat(70)); await h.send('???'); await h.send('SPD'); await h.send('CLAW');
+  assert.equal(await brushPwm(h), 0);
+  await h.send('Z'.repeat(70)); await h.send('???'); await h.send('SPD'); await h.send('BRUSH'); await h.send('LIFT');
+  await h.send('CLAW 1'); await h.send('PICK');            // perintah versi capit lama: diabaikan
   const r = await h.send('GET');
   assert.equal(r.filter((o) => o.t === 'tel').length, 1);
+  assert.equal(h.tel().st, 'manual');
 });

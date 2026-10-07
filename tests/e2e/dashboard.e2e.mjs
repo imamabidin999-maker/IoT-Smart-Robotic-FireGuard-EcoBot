@@ -122,7 +122,7 @@ for (const robot of ROBOTS) {
       assert.match(await text(page, '[data-cam="res"]'), /640×360 · \d+ FPS/);
       assert.equal(await page.locator('#camViewport canvas').isVisible(), true);
       assert.match(await text(page, '#sysConn'), /Demo \(simulasi\) · aktif/);
-      assert.match(await text(page, '#sysFw'), /^v1\.0\.0-sim$/);
+      assert.equal(await text(page, '#sysFw'), robot === 'ecobot' ? 'v2.0.0-sim' : 'v1.0.0-sim');   // EcoBot versi sapu = 2.x
       assert.match(await text(page, '#batText'), /^\d+%$/, 'baterai simulasi tampil sebagai persen');
     });
   });
@@ -507,87 +507,99 @@ test('fireguard demo: e-stop melepas pompa yang sedang ditahan', async () => {
 // =====================================================================
 //  EcoBot — perilaku khusus (demo)
 // =====================================================================
-test('ecobot demo: 5 sensor ultrasonik, level, dan klik simulasi', async () => {
+test('ecobot demo: 5 sensor rintangan, level, dan klik simulasi', async () => {
   await run('ecobot', {}, async ({ page }) => {
     assert.equal(await page.locator('#sensorList .sensor-card').count(), 5);
     const labels = await page.$$eval('#sensorList .label-full', (e) => e.map((x) => x.textContent));
-    assert.deepEqual(labels, ['Sensor Depan', 'Sensor Belakang', 'Sensor Kiri', 'Sensor Kanan', 'Sensor Capit']);
+    assert.deepEqual(labels, ['Sensor Depan', 'Sensor Kiri-depan', 'Sensor Kanan-depan', 'Sensor Kiri', 'Sensor Kanan']);
     await waitText(page, '#sensorList .sensor-card:nth-child(1) .sensor-value', /\d+ cm/);
-    const card = page.locator('#sensorList .sensor-card').nth(2);          // Kiri
+    const card = page.locator('#sensorList .sensor-card').nth(3);          // Kiri
     await card.click();
-    await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[2].dataset.status === 'warn');
-    assert.match(await text(page, '#sensorList .sensor-card:nth-child(3) .sensor-status'), /terdeteksi/i);
+    await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[3].dataset.status === 'warn');
+    assert.match(await text(page, '#sensorList .sensor-card:nth-child(4) .sensor-status'), /terdeteksi/i);
     await card.click();
-    await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[2].dataset.status === 'danger');
-    assert.match(await text(page, '#sensorList .sensor-card:nth-child(3) .sensor-status'), /dekat/i);
-    await waitLog(page, /Objek sangat dekat — sensor Kiri/);
+    await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[3].dataset.status === 'danger');
+    assert.match(await text(page, '#sensorList .sensor-card:nth-child(4) .sensor-status'), /dekat/i);
+    await waitLog(page, /Rintangan dekat — sensor Kiri/);
     await card.click();
-    await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[2].dataset.status === 'ok');
+    await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[3].dataset.status === 'ok');
   });
 });
 
-test('ecobot demo: manual — capit, lengan, dan urutan ambil sampah', async () => {
+test('ecobot demo: manual — sapu nyala/mati, kecepatan sapu, angkat/turunkan sapu', async () => {
   await run('ecobot', {}, async ({ page }) => {
     await spySend(page, 'ecobot');
-    assert.equal(await page.locator('#clawBtn').isDisabled(), false, 'EcoBot menyala di mode manual');
-    assert.match(await text(page, '#clawLabel'), /Tertutup · 25°/);
-    assert.match(await text(page, '#armLabel'), /Turun · 10°/);
-    assert.equal(await text(page, '#clawBtn'), 'Buka Capit');
+    assert.equal(await page.locator('#brushBtn').isDisabled(), false, 'EcoBot menyala di mode manual');
+    assert.equal(await text(page, '#brushText'), 'SAPU MATI');
+    assert.equal(await text(page, '#brushLabel'), 'Mati');
+    assert.match(await text(page, '#liftLabel'), /Terangkat · 80°/);
+    assert.equal(await text(page, '#brushBtn'), 'Nyalakan Sapu');
+    assert.equal(await text(page, '#liftBtn'), 'Turunkan Sapu');
 
-    await page.click('#clawBtn');
-    await waitText(page, '#clawLabel', /Terbuka · 90°/);
-    assert.equal(await text(page, '#clawBtn'), 'Tutup Capit');
-    await page.click('#armBtn');
-    await waitText(page, '#armLabel', /Naik · 150°/);
-    assert.equal(await text(page, '#armBtn'), 'Turunkan Lengan');
-    await waitLog(page, /Capit dibuka oleh operator/);
-    await waitLog(page, /Lengan dinaikkan oleh operator/);
-    const s = await sent(page);
-    assert.ok(s.includes('CLAW 0') && s.includes('ARM 1'));
-    await page.click('#armBtn'); await page.click('#clawBtn');
-    await waitText(page, '#armLabel', /Turun · 10°/);
+    await page.click('#liftBtn');
+    await waitText(page, '#liftLabel', /Turun · 20°/);
+    assert.equal(await text(page, '#liftBtn'), 'Angkat Sapu');
+    await page.locator('#brushSpeed').fill('60');
+    assert.equal(await text(page, '#brushSpeedValue'), '60%');
+    await page.click('#brushBtn');
+    await waitText(page, '#brushLabel', /Berputar · 60%/);
+    assert.equal(await text(page, '#brushText'), 'SAPU BERPUTAR');
+    assert.equal(await text(page, '#brushBtn'), 'Matikan Sapu');
+    assert.ok((await sent(page)).includes('BRUSH 60') && (await sent(page)).includes('LIFT 0'));
+    await waitLog(page, /Sapu diturunkan/);
+    await waitLog(page, /Sapu dinyalakan \(60%\)/);
 
-    // urutan ambil sampah
-    const before = parseInt(await text(page, '#pickCount'), 10);
-    const bin0 = parseInt(await text(page, '#binLevelValue'), 10);
-    await page.click('#pickBtn');
-    await waitText(page, '#gripText', /MENGAMBIL SAMPAH/);
-    assert.equal(await page.locator('#clawBtn').isDisabled(), true, 'tombol manual terkunci saat urutan jalan');
-    assert.equal(await page.locator('#pickBtn').isDisabled(), true);
-    await waitLog(page, /Mulai mengambil sampah/);
-    await page.waitForFunction((n) => parseInt(document.getElementById('pickCount').textContent, 10) > n, before, { timeout: 9000 });
-    await waitLog(page, /Sampah ke-\d+ masuk ke penampung/);
-    const bin1 = parseInt(await text(page, '#binLevelValue'), 10);
-    assert.ok(bin1 > bin0, `kapasitas bin harus naik (${bin0}% -> ${bin1}%)`);
-    await waitText(page, '#gripText', /KENDALI MANUAL/, 3000);
+    // geser kecepatan saat sapu berputar -> langsung dikirim
+    await page.locator('#brushSpeed').fill('90');
+    await waitText(page, '#brushLabel', /Berputar · 90%/);
+    assert.ok((await sent(page)).includes('BRUSH 90'));
+
+    // lama menyapu bertambah
+    await page.waitForFunction(() => /\d+ dtk/.test(document.getElementById('sweepTime').textContent) && document.getElementById('sweepTime').textContent !== '0 dtk', null, { timeout: 5000 });
+
+    await page.click('#brushBtn');
+    await waitText(page, '#brushLabel', /^Mati$/);
+    await waitLog(page, /Sapu dimatikan/);
+    await page.click('#liftBtn');
+    await waitText(page, '#liftLabel', /Terangkat · 80°/);
+    await waitLog(page, /Sapu diangkat/);
+
+    // di mode otomatis tombol & slider terkunci
+    await page.click('#btnAuto'); await waitMode(page, 'A');
+    assert.equal(await page.locator('#brushBtn').isDisabled(), true);
+    assert.equal(await page.locator('#liftBtn').isDisabled(), true);
+    assert.equal(await page.locator('#brushSpeed').isDisabled(), true);
   });
 });
 
-test('ecobot demo: otomatis — objek di jangkauan diambil sendiri; bin penuh menghentikan & memunculkan banner', async () => {
+test('ecobot demo: otomatis — menyapu, menghindari rintangan, wadah penuh menghentikan & memunculkan banner', async () => {
   await run('ecobot', {}, async ({ page }) => {
     await page.click('#btnAuto'); await waitMode(page, 'A');
-    await waitText(page, '#robotState', /Menjelajah/);
-    const cards = page.locator('#sensorList .sensor-card');
-    await cards.nth(0).click(); await cards.nth(0).click();              // Depan -> jangkauan
-    await waitText(page, '#gripText', /MENGAMBIL SAMPAH/, 3000);
-    await page.waitForFunction(() => document.getElementById('pickCount').textContent === '1', null, { timeout: 9000 });
-    await waitText(page, '#robotState', /Menjelajah/, 4000);
+    await waitText(page, '#robotState', /Menyapu/);
+    await waitText(page, '#brushText', /MENYAPU/, 4000);
+    await waitText(page, '#liftLabel', /Turun/);
+    await waitLog(page, /Mulai menyapu otomatis/);
 
-    // bin hampir penuh
+    const cards = page.locator('#sensorList .sensor-card');
+    await cards.nth(0).click(); await cards.nth(0).click();              // Depan -> dekat
+    await waitText(page, '#brushText', /MENGHINDAR RINTANGAN/, 3000);
+    await waitText(page, '#liftLabel', /Terangkat/, 2000);              // sapu diangkat selama menghindar
+    await waitLog(page, /Rintangan di depan .* mundur dan berbelok/);
+    await waitText(page, '#brushText', /MENYAPU/, 6000);                 // setelah berbelok, lanjut menyapu
+
+    // wadah hampir penuh
     await page.evaluate(() => { window.ecobot.link.sim.binPct = 97; });
     await page.waitForSelector('#alertStack .alert-banner[data-level="warn"]');
-    assert.match(await text(page, '#alertStack .alert-banner'), /KAPASITAS BIN HAMPIR PENUH — 97% · Segera kembali ke titik pembuangan \(pemungutan otomatis dihentikan\)/);
-    await waitText(page, '#gripText', /BIN PENUH/);
-    assert.equal(await attr(page, '#gripBox', 'data-status'), 'danger');
-    assert.equal(await text(page, '#pickBtn'), 'Bin penuh');
-    assert.equal(await page.locator('#pickBtn').isDisabled(), true);
-    await waitLog(page, /Bin penuh \(97%\)/);
+    assert.match(await text(page, '#alertStack .alert-banner'), /KAPASITAS WADAH HAMPIR PENUH — 97% · Kosongkan wadah sampah \(menyapu otomatis dihentikan\)/);
+    await waitText(page, '#brushText', /WADAH PENUH/);
+    assert.equal(await attr(page, '#brushBox', 'data-status'), 'danger');
+    await waitLog(page, /Wadah penuh \(97%\) — menyapu otomatis dihentikan/);
     assert.match(await attr(page, '#binLevelValue', 'style') || '', /danger/);
 
     await page.click('#binResetDemo');
     await page.waitForFunction(() => !document.querySelector('#alertStack .alert-banner'), null, { timeout: 3000 });
-    await waitLog(page, /Bin sudah dikosongkan/);
-    await waitText(page, '#robotState', /Menjelajah/, 3000);
+    await waitLog(page, /Wadah sudah dikosongkan/);
+    await waitText(page, '#robotState', /Menyapu/, 3000);
   });
 });
 
@@ -747,7 +759,7 @@ for (const robot of ROBOTS) {
         assert.equal(await attr(page, '#connDot', 'data-state'), 'online');
         assert.equal(await page.locator('#demoChip').isVisible(), false);
         assert.match(await text(page, '#sysConn'), /WebSocket · tersambung/);
-        assert.equal(await text(page, '#sysFw'), 'v1.0.0-sim');   // versi firmware Uno (dari pesan info)
+        assert.equal(await text(page, '#sysFw'), robot === 'ecobot' ? 'v2.0.0-sim' : 'v1.0.0-sim');   // versi firmware Uno (dari pesan info)
         assert.equal(await text(page, '#sysIp'), '127.0.0.1');
         await page.waitForFunction(() => /^\d+ ms$/.test(document.getElementById('sysRtt').textContent), null, { timeout: 4000 });
         assert.equal(await text(page, '#sysRssi'), '-48 dBm');
