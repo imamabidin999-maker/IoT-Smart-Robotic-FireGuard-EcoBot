@@ -42,8 +42,8 @@
 #define INVERT_RIGHT    0      // ganti 1 kalau roda kanan berputar terbalik
 
 // ---- motor sapu (sikat berputar) ----
-#define PIN_BRUSH       3      // PWM, ke pin SIG/PWM modul MOSFET
-#define BRUSH_USE_PWM   1      // 1 = modul MOSFET (kecepatan bisa diatur). 0 = relay (hanya nyala/mati)
+#define PIN_BRUSH       3      // PWM, ke IN modul relay / basis TIP120 (lewat 1 kΩ) / SIG modul MOSFET
+#define BRUSH_USE_PWM   1      // 1 = transistor atau MOSFET (kecepatan bisa diatur). 0 = modul relay (hanya nyala/mati)
 #define BRUSH_ACTIVE_HIGH 1    // hanya untuk relay: modul relay biasanya aktif LOW -> ganti jadi 0
 #define BRUSH_MIN_PCT   35     // di bawah ini motor sapu biasanya tidak kuat berputar
 #define BRUSH_AUTO_PCT  70     // kecepatan sapu di mode otomatis (70% dari baterai 2S ±5,9 V, aman untuk motor 3-6 V)
@@ -526,9 +526,9 @@ static void readSerial(unsigned long now) {
 void setup() {
   pinMode(PIN_ENA, OUTPUT); pinMode(PIN_IN1, OUTPUT); pinMode(PIN_IN2, OUTPUT);
   pinMode(PIN_ENB, OUTPUT); pinMode(PIN_IN3, OUTPUT); pinMode(PIN_IN4, OUTPUT);
-  pinMode(PIN_BRUSH, OUTPUT);
+  brushWrite(0);                       // sapu harus mati dulu sebelum apa pun (ditulis sebelum pin jadi OUTPUT,
+  pinMode(PIN_BRUSH, OUTPUT);          // supaya relay aktif-LOW tidak sempat menyala sesaat)
   motorStop();
-  brushWrite(0);                       // sapu harus mati dulu sebelum apa pun
 
   for (uint8_t i = 0; i < US_COUNT; i++) {
     pinMode(US_TRIG[i], OUTPUT);

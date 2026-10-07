@@ -18,7 +18,7 @@ dengan data sungguhan.
 
 ## Menyambung ke robot sungguhan
 
-1. **Wiring dan daya.** Ikuti [docs/WIRING.md](docs/WIRING.md). Untuk EcoBot ada panduan rakit urut langkah demi langkah di [docs/RAKIT-ECOBOT.md](docs/RAKIT-ECOBOT.md). Bagian daya paling penting (baterai 18650 perlu 2 sel seri, dan ESP32/servo tidak boleh dari pin 5 V Uno).
+1. **Wiring dan daya.** Ikuti [docs/WIRING.md](docs/WIRING.md). Panduan rakit urut langkah demi langkah: [docs/RAKIT-FIREGUARD.md](docs/RAKIT-FIREGUARD.md) dan [docs/RAKIT-ECOBOT.md](docs/RAKIT-ECOBOT.md). Bagian daya paling penting (baterai 18650 perlu 2 sel seri, dan ESP32/servo tidak boleh dari pin 5 V Uno).
 2. **Upload sketch ke Arduino Uno**: `firmware/fireguard_uno/` atau `firmware/ecobot_uno/`.
    Lepas kabel D0/D1 ke ESP saat upload. Sesuaikan bagian KONFIGURASI di atas sketch (jumlah sensor, arah motor, sudut servo).
    Di modul L298N, **cabut jumper ENA dan ENB** dulu (lihat `docs/WIRING.md` bagian 2).
@@ -78,10 +78,10 @@ Beberapa hal di daftar komponen tidak sepenuhnya jelas bagi saya. Ini yang saya 
 | Jumlah MQ-2 | **1** | `GAS_COUNT 2` |
 | "ESP extension" | modul **ESP32** (atau ESP8266) sebagai jembatan WiFi ke Uno; ESP32-CAM khusus kamera | sketch bridge jalan di ESP32 dan ESP8266 |
 | Driver motor roda | 1 modul L298N per robot: channel A roda kiri, channel B roda kanan | pin di `docs/WIRING.md` bagian 2 |
-| Motor sapu EcoBot | lewat **modul MOSFET** di satu pin PWM (D3) | relay juga bisa: `BRUSH_USE_PWM 0` |
+| Motor sapu EcoBot | lewat pensaklar di D3: **modul relay** (dipakai di panduan rakit), transistor TIP120, atau modul MOSFET | relay: ubah `BRUSH_USE_PWM` jadi `0`. Bawaan sketch `1` untuk TIP120/MOSFET, kecepatan sapu bisa diatur |
 | Servo EcoBot | 1 mini servo untuk mengangkat / menurunkan sapu | `LIFT_DOWN_ANGLE`, `LIFT_UP_ANGLE` |
 | 6 ultrasonik EcoBot | Depan, Kiri-depan, Kanan-depan, Kiri, Kanan, **Wadah** (mengukur isi wadah) | urutan & pin di `docs/WIRING.md` |
-| Pompa FireGuard | lewat modul relay/MOSFET di D4 (**tidak ada di daftar Anda**, perlu dibeli) | `PIN_PUMP`, `PUMP_ACTIVE_HIGH` |
+| Pompa FireGuard | pompa celup mini 3–6 V lewat modul relay di D4 (**keduanya tidak ada di daftar Anda**, perlu dibeli) | `PIN_PUMP`, `PUMP_ACTIVE_HIGH` (`0` untuk relay aktif-LOW) |
 | Baterai | 2 sel 18650 seri (7,4 V) | satu sel tidak cukup untuk L298N dan Uno |
 | Mode saat menyala | FireGuard: otomatis (diam sampai ada api). EcoBot: manual (tidak langsung jalan sendiri) | `setup()` di sketch |
 
@@ -133,8 +133,9 @@ cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau 
 | Roda berputar terbalik | `INVERT_LEFT` / `INVERT_RIGHT` di sketch |
 | Pompa menyala saat seharusnya mati | `PUMP_ACTIVE_HIGH 0` (modul relay aktif-LOW) |
 | Slider kecepatan tidak berpengaruh, motor selalu kencang | jumper ENA/ENB di L298N belum dicabut |
-| Motor sapu tidak berputar | cek sisi daya modul MOSFET (VIN dari baterai) dan GND bersama; kecepatan di bawah 35% dinaikkan otomatis |
-| Uno restart saat sapu mulai berputar | pasang dioda flyback di motor sapu, naikkan `BRUSH_RAMP_MS` |
+| Relay sapu/pompa langsung menyala saat robot dinyalakan | relay aktif-LOW: `BRUSH_ACTIVE_HIGH 0` / `PUMP_ACTIVE_HIGH 0`; untuk sapu, `BRUSH_USE_PWM` juga harus `0` |
+| Relay klik tapi motor sapu/pompa diam | beban harus di terminal NO (bukan NC), dan COM diberi daya |
+| Uno restart saat sapu/pompa mulai berputar | pasang dioda flyback di motor sapu/pompa; kalau pakai transistor/MOSFET, naikkan `BRUSH_RAMP_MS` |
 | Motor berdengung tapi tidak jalan | naikkan `MIN_PWM`, atau baterai kurang kuat |
 
 ## Struktur

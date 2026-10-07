@@ -45,7 +45,7 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
 #define INVERT_RIGHT    0      // ganti 1 kalau roda kanan berputar terbalik
 
 #define PIN_NOZZLE      11     // servo nozzle
-#define PIN_PUMP        4      // ke modul relay / MOSFET pompa (BUKAN langsung ke pompa)
+#define PIN_PUMP        4      // ke IN modul relay / basis TIP120 lewat 1 kΩ / SIG modul MOSFET (BUKAN langsung ke pompa)
 #define PUMP_ACTIVE_HIGH 1     // modul relay biasanya aktif LOW -> ganti jadi 0
 
 // ---- baterai (opsional) ----
@@ -467,10 +467,10 @@ static void readSerial(unsigned long now) {
 void setup() {
   pinMode(PIN_ENA, OUTPUT); pinMode(PIN_IN1, OUTPUT); pinMode(PIN_IN2, OUTPUT);
   pinMode(PIN_ENB, OUTPUT); pinMode(PIN_IN3, OUTPUT); pinMode(PIN_IN4, OUTPUT);
-  pinMode(PIN_PUMP, OUTPUT);
+  pumpSet(false);                       // pompa harus mati dulu sebelum apa pun (ditulis sebelum pin jadi OUTPUT,
+  pinMode(PIN_PUMP, OUTPUT);            // supaya relay aktif-LOW tidak sempat menyala sesaat)
   pinMode(LED_BUILTIN, OUTPUT);
   motorStop();
-  pumpSet(false);                       // pompa harus mati dulu sebelum apa pun
 
   nozzle.attach(PIN_NOZZLE);
   nozzle.write(NOZ_HOME);
