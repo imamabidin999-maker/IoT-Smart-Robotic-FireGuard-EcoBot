@@ -7,7 +7,7 @@
     kartu status sistem, log aktivitas, banner peringatan, dialog pengaturan.
 
   Yang diurus file robot masing-masing (fireguard.js / ecobot.js):
-    kartu sensor, aktuator (pompa / capit), grafik, dan aturan alarm — lewat hook:
+    kartu sensor, aktuator (pompa / sapu), grafik, dan aturan alarm — lewat hook:
       onInfo(info, dash)        robot mengirim info (nama sensor, ambang batas, dst)
       onTel(tel, prev, dash)    telemetri baru masuk
       render(ctx, dash)         dipanggil tiap telemetri, perubahan koneksi, dan tiap detik

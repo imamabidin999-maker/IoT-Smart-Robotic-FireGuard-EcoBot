@@ -20,6 +20,7 @@ int g_pin_pwm[64] = {0};
 int g_analog[64] = {0};
 unsigned long g_echo_us[64] = {0};
 int g_servo_angle[64] = {0};
+unsigned long g_rand_state = 12345;
 SerialShim Serial;
 
 #include SKETCH_PATH

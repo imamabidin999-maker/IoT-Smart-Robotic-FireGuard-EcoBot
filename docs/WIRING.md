@@ -14,10 +14,11 @@ sekitar 2 V, jadi motor hanya kebagian ±1,7 V, dan Uno butuh minimal ±7 V di p
 Pakai **2 sel seri (7,4 V, penuh 8,4 V)** dengan holder dan proteksi (BMS 2S).
 
 ```
-Baterai 2S (7,4 V) ──► saklar ──┬─► L298N terminal +12V  (motor)
+Baterai 2S (7,4 V) ──► saklar ──┬─► L298N terminal +12V  (motor roda)
                                 ├─► Uno pin VIN          (Uno punya regulator sendiri)
+                                ├─► modul MOSFET VIN+    (khusus EcoBot: motor sapu)
                                 └─► Buck converter 5 V ≥ 2 A ──► ESP32, ESP32-CAM, servo, MQ-2
-GND baterai = GND L298N = GND Uno = GND buck = GND ESP (semua GND harus disatukan)
+GND baterai = GND L298N = GND Uno = GND buck = GND ESP = GND modul MOSFET (semua GND harus disatukan)
 ```
 
 - **Jangan** menyuplai ESP32, ESP32-CAM, servo, atau MQ-2 dari pin 5 V Uno. Regulator Uno tidak kuat
@@ -27,13 +28,44 @@ GND baterai = GND L298N = GND Uno = GND buck = GND ESP (semua GND harus disatuka
   was triggered" di Serial Monitor = daya kurang, bukan salah kode.
 - Jumper 5V di L298N boleh dibiarkan terpasang (dia hanya dipakai sebagai regulator internal modul), tapi
   jangan ambil 5 V dari situ untuk beban lain.
-- Persen baterai di dashboard butuh pembagi tegangan (bagian 6). Tanpa itu, kolom baterai menampilkan "—".
+- Persen baterai di dashboard butuh pembagi tegangan (bagian 7). Tanpa itu, kolom baterai menampilkan "—".
 
-## 2. FireGuard — Arduino Uno
+## 2. L298N — driver motor roda (sama untuk kedua robot)
+
+Satu modul L298N punya dua channel. Channel A untuk roda **kiri**, channel B untuk roda **kanan**.
+Robot 4WD: dua motor di sisi yang sama dipasang **paralel** ke satu channel. Robot 2WD (seperti robot sapu
+di gambar Anda): satu motor per channel. Kode untuk 4WD dan 2WD sama persis.
+
+```
+              ┌──────────── L298N ────────────┐
+Motor kiri  ──┤ OUT1  OUT2          OUT3  OUT4 ├── Motor kanan
+              │                                │
+Baterai + ────┤ +12V                           │
+GND bersama ──┤ GND                            │
+  (biarkan)   │ 5V    (jangan dipakai beban)    │
+              │                                │
+Uno D5 ───────┤ ENA  ← cabut jumper-nya dulu!  │
+Uno D7 ───────┤ IN1                            │
+Uno D8 ───────┤ IN2                            │
+Uno D9 ───────┤ IN3                            │
+Uno D10 ──────┤ IN4                            │
+Uno D6 ───────┤ ENB  ← cabut jumper-nya dulu!  │
+              └────────────────────────────────┘
+```
+
+- **Cabut jumper kecil di pin ENA dan ENB.** Dari pabrik, ENA/ENB dijumper ke 5 V supaya motor selalu jalan
+  kecepatan penuh. Kalau jumper dibiarkan, slider "Batas kecepatan" di dashboard dan kecepatan pelan saat
+  menyapu tidak akan berpengaruh. Setelah dicabut, sambungkan pin ENA ke D5 dan ENB ke D6.
+- Jumper **5V-EN** (dekat terminal +12V) biarkan terpasang. Itu hanya untuk regulator internal modul.
+- Kalau satu sisi berputar terbalik saat maju: tukar dua kabel motor di OUT sisi itu, atau ubah
+  `INVERT_LEFT` / `INVERT_RIGHT` di sketch.
+- L298N panas kalau motor sering tertahan. Wajar hangat, tapi kalau sampai terlalu panas disentuh, beri jeda.
+
+## 3. FireGuard — Arduino Uno
 
 | Komponen | Pin Uno | Keterangan |
 |---|---|---|
-| ESP (Serial) | D0 (RX), D1 (TX) | silang: TX Uno → RX ESP (lewat pembagi tegangan, bagian 4); RX Uno ← TX ESP |
+| ESP (Serial) | D0 (RX), D1 (TX) | silang: TX Uno → RX ESP (lewat pembagi tegangan, bagian 5); RX Uno ← TX ESP |
 | L298N ENA / IN1 / IN2 | D5 / D7 / D8 | sisi **kiri** (motor kiri depan + kiri belakang, dipasang paralel) |
 | L298N ENB / IN3 / IN4 | D6 / D9 / D10 | sisi **kanan** |
 | Sensor api 1 (Kiri) | A0 | pin **AO** modul |
@@ -65,55 +97,96 @@ MQ-2 perlu pemanasan sekitar 20 detik setiap dinyalakan (dashboard menampilkan "
 dibakar-awal 24 jam saat pertama dipakai supaya pembacaan stabil. Nilai `GAS_WARN 350` / `GAS_DANGER 550`
 hanya titik awal: catat nilai di udara bersih, lalu atur ambangnya.
 
-## 3. EcoBot — Arduino Uno
+## 4. EcoBot (robot penyapu) — Arduino Uno
 
 | Komponen | Pin Uno | Keterangan |
 |---|---|---|
 | ESP (Serial) | D0 (RX), D1 (TX) | sama seperti FireGuard |
-| L298N ENA / IN1 / IN2 | D5 / D7 / D8 | sisi kiri |
-| L298N ENB / IN3 / IN4 | D6 / D9 / D10 | sisi kanan |
-| Servo capit | D3 | buka/tutup |
-| Servo lengan | D11 | naik/turun |
-| Ultrasonik **TRIG** Depan + Belakang | D2 | dua sensor berbagi satu pin TRIG |
-| Ultrasonik **TRIG** Kiri + Kanan | D4 | berbagi |
-| Ultrasonik **TRIG** Capit + Bin | D12 | berbagi |
+| L298N ENA / IN1 / IN2 | D5 / D7 / D8 | roda kiri (lihat bagian 2) |
+| L298N ENB / IN3 / IN4 | D6 / D9 / D10 | roda kanan |
+| Motor sapu | D3 | ke pin **SIG/PWM** modul MOSFET (bukan langsung ke motor) |
+| Servo pengangkat sapu | D11 | sinyal; merah ke 5 V buck, coklat/hitam ke GND |
+| Ultrasonik **TRIG** Depan + Wadah | D2 | dua sensor berbagi satu pin TRIG |
+| Ultrasonik **TRIG** Kiri-depan + Kanan-depan | D4 | berbagi |
+| Ultrasonik **TRIG** Kiri + Kanan | D12 | berbagi |
 | ECHO Depan | A0 | |
-| ECHO Belakang | A1 | |
-| ECHO Kiri | A2 | |
-| ECHO Kanan | A3 | |
-| ECHO Capit | A4 | |
-| ECHO Bin | D13 | |
+| ECHO Kiri-depan | A1 | |
+| ECHO Kanan-depan | A2 | |
+| ECHO Kiri | A3 | |
+| ECHO Kanan | A4 | |
+| ECHO Wadah | D13 | |
 | Baterai (pembagi tegangan) | A5 | opsional |
 
-**Kenapa TRIG dipasangkan?** Uno hanya punya 20 pin. Enam HC-SR04 butuh 12, L298N 6, servo 2, dan jalur
-ESP 2: total 22. Jadi tiga pasang sensor berbagi TRIG. Pasangannya dipilih yang arahnya saling
-membelakangi supaya tidak saling mengganggu. Firmware tetap mengukur satu sensor per waktu, jadi hasil
-masing-masing tidak tercampur.
+Dengan susunan ini **ke-20 pin Uno terpakai semua**: ESP 2, L298N 6, sapu 1, servo 1, baterai 1,
+ultrasonik 9. Karena itu motor sapu dibuat cukup dengan satu pin.
 
-Posisi sensor yang disarankan:
+### Motor sapu lewat modul MOSFET
 
-- **Depan**, **Kiri**, **Kanan**, **Belakang**: di badan robot, menghadap ke arahnya masing-masing.
-- **Capit**: rendah di dekat capit, menghadap ke depan. Saat jaraknya ≤ 12 cm, objek dianggap sudah dalam jangkauan capit.
-- **Bin**: di tepi atas penampung, **menghadap ke bawah** ke dasar bin. Ukur jarak ke dasar saat kosong dan isi
-  `BIN_EMPTY_CM` (bawaan 20). Kapasitas dihitung dari situ. Sensor ini tidak ikut dipakai mendeteksi objek.
-  Saat lengan sedang di atas bin, bacaan Bin diabaikan karena terhalang lengan.
+Modul MOSFET adalah saklar elektronik. Uno hanya mengirim sinyal (kecil, 5 V), sedangkan arus motor
+mengalir dari baterai lewat modul. Jadi **tidak cukup disambung ke Uno saja**: ada tiga sisi yang
+perlu disambung.
 
-**Soal sampah vs dinding.** Sensor ultrasonik hanya tahu ada benda, bukan jenisnya. Bawaan firmware:
-benda di depan yang **juga** ada benda di sampingnya dianggap dinding/sudut dan dihindari. Kalau sensor
-Depan Anda pasang **lebih tinggi** dari sampah (mis. di atas bin), ubah `DEPAN_SENSOR_HIGH` jadi `1`: sampah
-pendek hanya terlihat sensor Capit, sedangkan rintangan tinggi terlihat keduanya. Tetap tidak sempurna:
-dinding datar yang didekati dari depan masih bisa dikira sampah. Kalau itu sering terjadi, kamera (manual)
-masih yang paling bisa diandalkan.
+```
+Uno D3  ───────────────► SIG / PWM ┐
+Uno GND ───────────────► GND       │ sisi sinyal
+                                   │
+Baterai + (7,4 V) ─────► VIN+      │ sisi daya          modul MOSFET
+Baterai − / GND ───────► VIN−      │
+                                   │
+Motor sapu (+) ◄──────── OUT+ / V+ │ sisi motor
+Motor sapu (−) ◄──────── OUT− / V− ┘
+```
 
-**Servo**: sudut default `CLAW_OPEN_ANGLE 90`, `CLAW_CLOSED_ANGLE 25`, `ARM_DOWN_ANGLE 10`, `ARM_UP_ANGLE 150`.
-Uji satu per satu dari mode manual dan sesuaikan supaya servo tidak mentok (berdengung = mentok, cepat
-panas). Lengan naik ke 150° itu diasumsikan mengayun melewati atas bin tempat capit membuang sampah.
+- Nama terminalnya beda-beda tiap modul (VIN/GND, DC+/DC−, V+/V−, LOAD), tapi polanya selalu sama:
+  **sinyal dari Uno, daya dari baterai, keluaran ke motor**.
+- Pilih modul yang bisa penuh menyala dengan sinyal 5 V (*logic-level*), misalnya modul **D4184 / AOD4184**
+  atau MOSFET **IRLZ44N**. Modul **IRF520** yang banyak dijual juga bisa untuk motor kecil, tapi pada sinyal
+  5 V ia tidak menyala penuh dan lebih cepat panas.
+- Pasang **dioda flyback** (1N4007 atau 1N5819) melintang di terminal motor sapu: garis/katoda ke + motor.
+  Banyak modul belum punya dioda ini, padahal lonjakan tegangan dari motor bisa merusak MOSFET.
+- Motor sapu kecil (TT kuning atau tipe 130) umumnya 3–6 V. Karena daya dari baterai 7,4–8,4 V, kecepatan
+  sapu otomatis dibatasi 70% (`BRUSH_AUTO_PCT`, ±5,9 V). Di mode manual, slider kecepatan sapu juga
+  sebaiknya tidak dinaikkan di atas sekitar 75% untuk motor 6 V.
+- Firmware menaikkan kecepatan sapu pelan-pelan (soft-start, `BRUSH_RAMP_MS`) supaya lonjakan arus saat
+  mulai berputar tidak me-reset Uno.
+- Kalau ternyata memakai **modul relay** (hanya nyala/mati): ubah `BRUSH_USE_PWM` jadi `0`, dan kalau
+  relaynya aktif-LOW, `BRUSH_ACTIVE_HIGH` jadi `0`. Slider kecepatan sapu otomatis disembunyikan di dashboard.
 
-**Capit dan "mini servo":** daftar Anda menyebut satu capit mini dan satu mini servo. Sketch memakai dua
-servo: satu untuk capit (buka/tutup) dan satu untuk lengan (naik/turun). Kalau lengan Anda ternyata tidak
-bergerak naik-turun, cukup biarkan `ARM_UP_ANGLE` = `ARM_DOWN_ANGLE`.
+### Servo pengangkat sapu
 
-## 4. ESP bridge (ESP32 DevKit atau ESP8266)
+Servo mengangkat sapu saat tidak dipakai dan saat robot mundur menghindar, supaya sampah di wadah tidak
+tertarik keluar dan bulu sikat tidak cepat aus. Sudut bawaan: `LIFT_DOWN_ANGLE 20` (sapu menyentuh lantai)
+dan `LIFT_UP_ANGLE 80` (terangkat). Uji dari mode manual (tombol "Turunkan Sapu" / "Angkat Sapu") lalu
+sesuaikan angkanya. Di mode otomatis, sapu baru mulai berputar setelah benar-benar turun.
+
+### Posisi sensor ultrasonik
+
+- **Depan**: di tengah depan, **di atas sapu**, menghadap lurus ke depan. Pasang lebih tinggi dari sampah
+  (±8–10 cm dari lantai) supaya sampah kecil tidak dikira rintangan dan tetap tersapu.
+- **Kiri-depan** dan **Kanan-depan**: di sudut depan, serong ±45° ke luar. Keduanya menangkap rintangan yang
+  lolos dari sensor depan, misalnya kaki kursi.
+- **Kiri** dan **Kanan**: di samping, menghadap 90° ke luar. Dipakai untuk menjauh sedikit dari dinding
+  supaya badan robot tidak bergesekan.
+- **Wadah**: di tutup/atas wadah sampah, **menghadap ke bawah** ke dasar wadah. Ukur jarak ke dasar saat
+  kosong dan isi `BIN_EMPTY_CM` (bawaan 20). Kapasitas wadah dihitung dari situ.
+
+Tidak ada sensor belakang, jadi saat menghindar robot hanya mundur sebentar (`AVOID_BACK_MS`, 0,45 detik).
+Di mode manual, gerak maju ditahan kalau ada benda ≤ 6 cm di depan atau serong depan. Gerak mundur tidak
+dijaga sensor, jadi hati-hati.
+
+### Cara kerja mode otomatis
+
+1. Sapu turun, lalu mulai berputar 70%.
+2. Robot maju pelan sambil menyapu, dan menjauh sedikit kalau terlalu dekat dinding samping.
+3. Ada rintangan di depan atau serong depan: sapu berhenti dan terangkat, robot mundur sebentar, lalu
+   berputar ke sisi yang lebih lega selama waktu acak. Setelah itu kembali menyapu.
+4. Tiap ±12 detik tanpa rintangan, robot berbelok acak supaya area tersapu lebih rata.
+5. Wadah penuh (≥ 95%): robot berhenti, sapu mati dan terangkat. Setelah wadah dikosongkan, robot lanjut sendiri.
+
+Tanpa encoder roda, robot tidak tahu posisinya, jadi polanya "memantul" seperti robot vakum sederhana,
+bukan menyapu baris demi baris.
+
+## 5. ESP bridge (ESP32 DevKit atau ESP8266)
 
 Uno bekerja di 5 V, ESP di 3,3 V.
 
@@ -138,7 +211,7 @@ GND Uno ─────────────────────── GN
 - Alamat di dashboard: `fireguard.local` / `ecobot.local` (mDNS), atau IP yang tampil di Serial Monitor
   (ESP32). Di HP Android, `.local` kadang tidak terbaca. Pakai IP kalau begitu.
 
-## 5. ESP32-CAM
+## 6. ESP32-CAM
 
 Hanya butuh daya: 5 V stabil dan GND (bagian 1). Tidak ada kabel ke Uno.
 
@@ -149,7 +222,7 @@ Hanya butuh daya: 5 V stabil dan GND (bagian 1). Tidak ada kabel ke Uno.
 - Alamat kamera di dashboard: `fireguard-cam.local` / `ecobot-cam.local`, atau IP-nya. Hanya satu penonton
   stream dalam satu waktu.
 
-## 6. Mengukur baterai (opsional)
+## 7. Mengukur baterai (opsional)
 
 ```
 + baterai ──[ 10 kΩ ]──┬──► A5 Uno

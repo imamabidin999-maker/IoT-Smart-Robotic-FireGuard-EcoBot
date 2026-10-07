@@ -3,7 +3,7 @@
 Dua robot IoT, dua dashboard terpisah.
 
 - **FireGuard** mendeteksi api dan gas, lalu memadamkan api dengan pompa air.
-- **EcoBot** mendeteksi sampah dengan sensor ultrasonik, mengambilnya dengan capit, dan membuangnya ke bin di atas robot.
+- **EcoBot** adalah robot penyapu: sikat berputar di depan menyapu sampah ke wadah di badan robot, sambil menghindari rintangan dengan sensor ultrasonik.
 
 Dashboard-nya murni HTML, CSS, dan JavaScript biasa. Tidak perlu build, tidak perlu server, dan tidak perlu internet
 (font dan library MQTT sudah disimpan di repo). Tampilannya mengikuti mockup, lalu dilengkapi supaya benar-benar bisa
@@ -21,6 +21,7 @@ dengan data sungguhan.
 1. **Wiring dan daya.** Ikuti [docs/WIRING.md](docs/WIRING.md). Bagian daya paling penting (baterai 18650 perlu 2 sel seri, dan ESP32/servo tidak boleh dari pin 5 V Uno).
 2. **Upload sketch ke Arduino Uno**: `firmware/fireguard_uno/` atau `firmware/ecobot_uno/`.
    Lepas kabel D0/D1 ke ESP saat upload. Sesuaikan bagian KONFIGURASI di atas sketch (jumlah sensor, arah motor, sudut servo).
+   Di modul L298N, **cabut jumper ENA dan ENB** dulu (lihat `docs/WIRING.md` bagian 2).
 3. **Upload `firmware/esp_bridge/` ke ESP** (ESP32 atau ESP8266): isi nama WiFi, password, dan `ROBOT_NAME`.
    Library yang perlu dipasang lewat Library Manager: *WebSockets* (Markus Sattler), dan *PubSubClient* kalau mau MQTT.
 4. **Upload `firmware/esp32cam_stream/` ke ESP32-CAM**: isi WiFi dan `CAM_HOSTNAME`.
@@ -47,7 +48,8 @@ Lalu di dashboard: Langsung → alamat robot `127.0.0.1:8081`, alamat kamera `12
 
 ## Yang ada di dashboard
 
-Yang sudah ada di mockup dipertahankan (joystick, WASD, toggle Otomatis/Manual, kartu sensor, pompa / capit, log, tampilan HP).
+Yang sudah ada di mockup dipertahankan (joystick, WASD, toggle Otomatis/Manual, kartu sensor, pompa, log, tampilan HP).
+Kartu capit EcoBot diganti kartu **Sapu & Wadah** karena konsepnya berubah menjadi robot penyapu.
 Yang saya tambah atau perbaiki:
 
 - **Koneksi sungguhan**: WebSocket langsung atau MQTT, sambung ulang otomatis, dan status yang jujur:
@@ -61,7 +63,8 @@ Yang saya tambah atau perbaiki:
 - **Log aktivitas nyata** (bukan contoh), tersimpan di browser, bisa diekspor CSV.
 - **Alarm**: banner, bunyi, dan notifikasi browser saat api atau gas berbahaya (bisa dimatikan di pengaturan).
 - **Status sistem**: latensi, sinyal WiFi, alamat, uptime robot, versi firmware, baterai.
-- **EcoBot**: urutan ambil sampah otomatis (capit + lengan + buang ke bin), hitungan sampah, kapasitas bin dari sensor, pengaman tabrakan di mode manual.
+- **EcoBot**: sapu nyala/mati dengan kecepatan yang bisa diatur, sapu bisa diangkat/diturunkan, mode otomatis menyapu sambil menghindari
+  rintangan, kapasitas wadah dari sensor, lama menyapu, pengaman tabrakan di mode manual.
 - **FireGuard**: arah nozzle bisa diatur manual, jumlah sensor api/gas mengikuti firmware, pemanasan MQ-2 ditampilkan, pompa dibatasi lama nyalanya.
 - Tampilan **3 kolom / 2 kolom / 1 kolom** (desktop, tablet, HP).
 
@@ -74,8 +77,10 @@ Beberapa hal di daftar komponen tidak sepenuhnya jelas bagi saya. Ini yang saya 
 | Jumlah sensor api | **2** (Kiri, Kanan), karena "berjumlah 2" | `FLAME_COUNT 3` di sketch; dashboard ikut sendiri |
 | Jumlah MQ-2 | **1** | `GAS_COUNT 2` |
 | "ESP extension" | modul **ESP32** (atau ESP8266) sebagai jembatan WiFi ke Uno; ESP32-CAM khusus kamera | sketch bridge jalan di ESP32 dan ESP8266 |
-| Servo EcoBot | 2 servo: capit (buka/tutup) dan lengan (naik/turun) | sudut di KONFIGURASI sketch |
-| 6 ultrasonik EcoBot | Depan, Belakang, Kiri, Kanan, Capit, **Bin** (mengukur isi bin) | urutan & pin di `docs/WIRING.md` |
+| Driver motor roda | 1 modul L298N per robot: channel A roda kiri, channel B roda kanan | pin di `docs/WIRING.md` bagian 2 |
+| Motor sapu EcoBot | lewat **modul MOSFET** di satu pin PWM (D3) | relay juga bisa: `BRUSH_USE_PWM 0` |
+| Servo EcoBot | 1 mini servo untuk mengangkat / menurunkan sapu | `LIFT_DOWN_ANGLE`, `LIFT_UP_ANGLE` |
+| 6 ultrasonik EcoBot | Depan, Kiri-depan, Kanan-depan, Kiri, Kanan, **Wadah** (mengukur isi wadah) | urutan & pin di `docs/WIRING.md` |
 | Pompa FireGuard | lewat modul relay/MOSFET di D4 (**tidak ada di daftar Anda**, perlu dibeli) | `PIN_PUMP`, `PUMP_ACTIVE_HIGH` |
 | Baterai | 2 sel 18650 seri (7,4 V) | satu sel tidak cukup untuk L298N dan Uno |
 | Mode saat menyala | FireGuard: otomatis (diam sampai ada api). EcoBot: manual (tidak langsung jalan sendiri) | `setup()` di sketch |
@@ -86,9 +91,9 @@ Yang sudah dijalankan otomatis:
 
 - **Firmware Uno** dikompilasi dengan `avr-g++` untuk ATmega328P: nol peringatan dari sketch. Memori terpakai sekitar 10 KB flash
   dan 0,5 KB RAM (Uno punya 32 KB dan 2 KB).
-- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 20 skenario diperiksa
-  (JSON valid di tiap baris, siaga → belok → semprot → jeda, batas 15 detik pompa, dead-man, urutan ambil sampah, pengaman tabrakan,
-  bin penuh, input sampah).
+- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 22 skenario diperiksa
+  (JSON valid di tiap baris, siaga → belok → semprot → jeda, batas 15 detik pompa, dead-man, soft-start sapu, servo pengangkat,
+  menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah).
 - **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 57 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
   (`tools/mock-robot`), termasuk server mati lalu hidup lagi, stream kamera macet, dan lima ukuran layar. Setiap tes memastikan
   **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
@@ -110,8 +115,9 @@ cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau 
 
 ## Keterbatasan yang perlu diketahui
 
-- Ultrasonik tidak bisa membedakan sampah dari dinding. Firmware memakai dua heuristik (lihat `docs/WIRING.md`), tapi tetap bisa keliru.
-  Mode manual dengan kamera adalah cara yang paling bisa diandalkan.
+- EcoBot tidak punya encoder roda, jadi tidak tahu posisinya. Mode otomatis menyapu dengan pola "memantul" (maju, menghindar, belok acak),
+  bukan baris demi baris, sehingga ada bagian lantai yang bisa terlewat. Untuk area tertentu, mode manual dengan kamera lebih teliti.
+- EcoBot tidak punya sensor belakang. Saat menghindar, robot hanya mundur sebentar, dan gerak mundur di mode manual tidak dijaga sensor.
 - Tidak ada login. Siapa pun di WiFi yang sama bisa mengendalikan robot. Pakai jaringan yang Anda percaya, dan awalan MQTT yang unik.
 - ESP32-CAM hanya melayani satu penonton stream dalam satu waktu. Tab kedua akan menampilkan pesan bahwa kamera tidak mengirim gambar.
 
@@ -126,6 +132,9 @@ cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau 
 | Dashboard https tidak bisa tersambung | browser memblokir `ws://` dari halaman https. Buka lewat `file://` atau `http://` |
 | Roda berputar terbalik | `INVERT_LEFT` / `INVERT_RIGHT` di sketch |
 | Pompa menyala saat seharusnya mati | `PUMP_ACTIVE_HIGH 0` (modul relay aktif-LOW) |
+| Slider kecepatan tidak berpengaruh, motor selalu kencang | jumper ENA/ENB di L298N belum dicabut |
+| Motor sapu tidak berputar | cek sisi daya modul MOSFET (VIN dari baterai) dan GND bersama; kecepatan di bawah 35% dinaikkan otomatis |
+| Uno restart saat sapu mulai berputar | pasang dioda flyback di motor sapu, naikkan `BRUSH_RAMP_MS` |
 | Motor berdengung tapi tidak jalan | naikkan `MIN_PWM`, atau baterai kurang kuat |
 
 ## Struktur

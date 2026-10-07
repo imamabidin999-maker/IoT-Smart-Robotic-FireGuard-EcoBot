@@ -28,12 +28,11 @@ Prinsipnya sengaja dibuat sederhana:
 | **FireGuard** | | |
 | `PUMP 1` / `PUMP 0` | Pompa manual | `PUMP 1` juga harus diulang < 600 ms sekali, kalau tidak pompa mati sendiri |
 | `NOZ <sudut>` | Arah nozzle manual | Dibatasi `NOZ_MIN..NOZ_MAX` di firmware |
-| **EcoBot** | | |
-| `CLAW 1` / `CLAW 0` | Capit tutup / buka | Manual saja, diabaikan saat urutan ambil sampah jalan |
-| `ARM 1` / `ARM 0` | Lengan naik / turun | Sama |
-| `PICK` | Jalankan urutan ambil sampah sekali | Ditolak kalau bin penuh |
+| **EcoBot (penyapu)** | | |
+| `BRUSH <persen>` | Motor sapu, 0..100 (0 = mati) | Nilai > 0 di bawah `BRUSH_MIN_PCT` (35) dinaikkan ke 35. Kecepatan naik pelan (soft-start) |
+| `LIFT 1` / `LIFT 0` | Angkat / turunkan sapu (servo) | |
 
-Perintah `DRV`, `PUMP`, `NOZ`, `CLAW`, `ARM` **diabaikan di mode otomatis**. Perintah yang tidak dikenal
+Perintah `DRV`, `PUMP`, `NOZ`, `BRUSH`, `LIFT` **diabaikan di mode otomatis**. Perintah yang tidak dikenal
 atau kepanjangan (> 31 karakter) dibuang tanpa efek apa pun.
 
 ## Pesan dari robot (robot → dashboard)
@@ -55,15 +54,18 @@ FireGuard:
 Jumlah elemen `flame` dan `gas` menentukan berapa kartu sensor yang muncul di dashboard.
 Jadi mengganti `FLAME_COUNT` di firmware sudah cukup, dashboard tidak perlu diubah.
 
-EcoBot:
+EcoBot (penyapu):
 
 ```json
-{"t":"info","robot":"ecobot","fw":"1.0.0",
- "us":["Depan","Belakang","Kiri","Kanan","Capit","Bin"],
+{"t":"info","robot":"ecobot","kind":"sweeper","fw":"2.0.0",
+ "us":["Depan","Kiri-depan","Kanan-depan","Kiri","Kanan","Wadah"],
  "pins":["A0","A1","A2","A3","A4","D13"],
- "th":{"det":60,"reach":15,"grab":12,"binE":20,"binF":4},
- "ang":{"clawOpen":90,"clawClosed":25,"armDown":10,"armUp":150}}
+ "th":{"det":50,"near":20,"side":10,"binE":20,"binF":4},
+ "lift":{"up":80,"down":20},
+ "brush":{"pwm":1,"min":35,"auto":70}}
 ```
+
+`brush.pwm` 0 berarti motor sapu memakai relay (hanya nyala/mati), dan dashboard menyembunyikan slider kecepatan sapu.
 
 ### `tel` — telemetri, dikirim Uno 4× per detik
 
@@ -92,20 +94,20 @@ Field yang sama di kedua robot:
 
 `st`: `idle` siaga · `turn` mengarah ke api · `approach` mendekati api · `spray` menyemprot · `rest` jeda pompa · `manual`
 
-**EcoBot**
+**EcoBot (penyapu)**
 
 | Field | Arti |
 |---|---|
-| `d` | jarak 6 sensor dalam cm, urut `info.us`. `-1` = tidak ada pantulan / di luar jangkauan. Elemen ke-6 adalah jarak sensor Bin ke permukaan sampah |
-| `l` | level 6 sensor: 0 kosong, 1 terdeteksi (≤ `det`), 2 dekat/jangkauan. Elemen ke-6 selalu 0 |
-| `bin` | kapasitas bin 0..100 (dihitung Uno dari jarak sensor Bin) |
-| `cl` | 1 = capit diperintah menutup |
-| `ar` | 1 = lengan diperintah naik |
-| `ca`, `aa` | sudut capit dan lengan sekarang |
-| `n` | jumlah sampah yang sudah dimasukkan ke bin sejak Uno menyala |
+| `d` | jarak 6 sensor dalam cm, urut `info.us`. `-1` = tidak ada pantulan / di luar jangkauan. Elemen ke-6 adalah jarak sensor Wadah ke permukaan sampah |
+| `l` | level 6 sensor: 0 kosong, 1 terdeteksi (≤ `det`), 2 dekat (≤ `near`, untuk Kiri/Kanan ≤ `side`). Elemen ke-6 selalu 0 |
+| `bin` | kapasitas wadah 0..100 (dihitung Uno dari jarak sensor Wadah) |
+| `br` | kecepatan sapu sekarang, 0..100 (naik pelan menuju `bt`) |
+| `bt` | kecepatan sapu yang diminta, 0..100 |
+| `lf` | 1 = sapu diperintah terangkat, 0 = turun |
+| `la` | sudut servo pengangkat sekarang |
+| `sw` | total detik sapu berputar sejak Uno menyala |
 
-`st`: `roam` menjelajah · `approach` mendekati objek · `align` memutar menghadap objek · `avoid` menghindar ·
-`pick` urutan ambil sampah · `full` bin penuh · `manual`
+`st`: `sweep` menyapu · `avoid` mundur & berbelok menghindari rintangan · `turn` belok acak · `full` wadah penuh · `manual`
 
 ### `bridge` — dikirim ESP saat klien tersambung dan saat `INFO`
 
@@ -150,7 +152,8 @@ dengan yang unik**, karena siapa pun yang tahu topiknya bisa membaca telemetri d
 - **Dead-man gerak**: Uno menghentikan motor kalau `DRV` tidak diperbarui selama 600 ms.
 - **Dead-man pompa**: pompa manual mati kalau `PUMP 1` tidak diperbarui selama 600 ms.
 - Dashboard mengirim `DRV 0 0` beberapa kali saat joystick dilepas, tab disembunyikan, jendela kehilangan fokus, atau halaman ditutup.
-- ESP mengirim `DRV 0 0` ke Uno saat klien WebSocket terputus.
+- ESP mengirim `DRV 0 0` dan `BRUSH 0` ke Uno saat klien WebSocket terputus (FireGuard mengabaikan `BRUSH`).
 - Pompa dibatasi 15 detik menyala terus, lalu jeda 3 detik (`PUMP_MAX_ON_MS`, `PUMP_REST_MS`).
 - Servo digerakkan bertahap (bukan lompat) supaya arus tidak melonjak dan me-reset Uno.
-- Mode manual EcoBot menahan gerak maju/mundur kalau ada benda ≤ 6 cm di arah itu.
+- Mode manual EcoBot menahan gerak maju kalau ada benda ≤ 6 cm di depan atau serong depan.
+- EcoBot: motor sapu dinaikkan pelan (soft-start) dan baru berputar setelah sapu turun (mode otomatis).
