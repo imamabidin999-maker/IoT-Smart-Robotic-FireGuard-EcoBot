@@ -122,15 +122,41 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    | IN4 | D10 |
    | ENB | D6 |
 
-5. Uno VIN ← baterai (+), Uno GND ← GND bersama.
-6. **Upload sketch** `firmware/fireguard_uno/fireguard_uno.ino` lewat USB (D0/D1 jangan dulu disambung ke apa pun).
-7. **Uji lewat Serial Monitor**, dengan roda **diangkat** dari lantai:
-   - Arduino IDE → Serial Monitor, baud **57600**, akhir baris **Newline**.
-   - Akan terlihat baris JSON 4× per detik. Itu normal.
+5. Uno VIN ← baterai (+), Uno GND ← GND bersama. **GND Uno wajib tersambung ke GND L298N**, juga saat Uno
+   hanya diberi daya dari USB laptop. Tanpa GND bersama, sinyal dari Uno tidak dikenali L298N dan roda diam.
+6. **Uji motor dulu dengan sketch `firmware/tes_motor/tes_motor.ino`.** Sketch ini memutar roda sendiri
+   dengan urutan tetap, tanpa perlu mengetik apa pun, jadi masalah kabel dan daya bisa dipisahkan dari masalah
+   perintah. Angkat robot, upload, nyalakan saklar baterai, lalu perhatikan roda. Buka Serial Monitor
+   (baud 57600) kalau ingin melihat langkah yang sedang berjalan.
+
+   | Yang terlihat | Artinya |
+   |---|---|
+   | Urutannya pas: kiri maju, kiri mundur, kanan maju, kanan mundur, lalu dua sisi makin kencang | Kabel, motor, dan daya beres. Lanjut ke nomor 7 |
+   | Satu sisi berputar ke arah yang terbalik | Tukar dua kabel motor di terminal OUT sisi itu |
+   | Tertulis "KIRI", tapi yang berputar roda kanan | Kabel OUT1/OUT2 tertukar dengan OUT3/OUT4, atau IN1/IN2 tertukar dengan IN3/IN4 |
+   | Hanya satu sisi yang berputar | Cek kabel sisi yang diam: kiri = IN1, IN2, ENA; kanan = IN3, IN4, ENB. Cek juga terminal OUT dan kabel motornya |
+   | Tidak ada roda yang berputar, lampu L298N menyala | GND Uno belum tersambung ke GND L298N; jumper ENA/ENB sudah dicabut tapi ENA/ENB belum disambung ke D5/D6; kabel IN di pin yang salah; atau baterai terlalu lemah |
+   | Tidak ada roda yang berputar, lampu L298N mati | Daya L298N belum masuk: cek langkah 2 (tegangan baterai, terminal 12V, jumper 5V-EN) |
+   | Tulisan `=== TES MOTOR RODA ===` muncul lagi setiap roda mulai berputar | Uno restart karena tegangan turun saat motor menyala: baterai lemah atau cuma satu sel. Isi baterai, atau sementara beri daya Uno dari USB |
+   | Saat `5/5` (kecepatan naik pelan) kecepatannya tidak berubah, langsung kencang | Jumper ENA/ENB masih terpasang. Untuk tes ini tidak apa, tapi cabut sebelum memakai firmware robot |
+   | Saat `5/5` roda baru mulai berputar di PWM tinggi (mis. di atas 120) | Motor butuh tenaga lebih. Di firmware robot naikkan `MIN_PWM` ke angka itu + ±20 dan `DEFAULT_SPEED` ke ±200, karena di lantai bebannya lebih berat daripada saat roda diangkat |
+
+7. **Upload sketch** `firmware/fireguard_uno/fireguard_uno.ino` lewat USB (D0/D1 jangan dulu disambung ke apa
+   pun). Pastikan Arduino IDE menulis *Done uploading*; kalau upload gagal, sketch lama yang tetap berjalan.
+8. **Uji lewat Serial Monitor**, dengan roda **diangkat** dari lantai:
+   - Arduino IDE → Serial Monitor, baud **57600**. Pilihan akhir baris apa saja boleh, huruf kecil juga boleh.
+     Kalau yang muncul huruf acak, baud-nya belum 57600.
+   - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya `# FireGuard 1.1.0 siap, mode OTOMATIS`.
+     Baris `#` adalah pesan untuk Anda. Setelah itu baris JSON muncul 4× per detik, itu juga normal.
    - **Ketik `MODE M` dulu.** FireGuard selalu menyala dalam mode Otomatis (diam menunggu api), dan di mode
-     itu perintah gerak dari luar diabaikan.
-   - Ketik `DRV 0 60` lalu Enter. Semua roda harus berputar **maju** sekitar setengah detik lalu berhenti
-     sendiri. Robot memang berhenti sendiri kalau perintah tidak diulang (pengaman dead-man).
+     itu perintah gerak dari luar diabaikan (Uno akan menulis `# Diabaikan: robot sedang mode OTOMATIS`).
+     Selama sensor api belum dipasang, ini juga mencegah robot bergerak sendiri, karena pin sensor yang masih
+     kosong bisa terbaca seperti ada api.
+   - Ketik `DRV 0 60` lalu Enter. Uno membalas `# Roda diperintah berputar: kiri 124, kanan 124 ...` dan semua
+     roda harus berputar **maju** sekitar setengah detik lalu berhenti sendiri. Robot memang berhenti sendiri
+     kalau perintah tidak diulang (pengaman dead-man).
+   - Pesan itu muncul tapi roda diam? Berarti perintahnya sudah sampai dan Uno sudah mengirim sinyal; masalahnya
+     di kabel atau daya. Kembali ke nomor 6 (`tes_motor`). Kalau roda cuma berdengung, ketik `SPD 255` lalu `DRV 0 100`.
    - Ketik `DRV 60 0`. Robot harus berputar ke **kanan**: roda kiri maju, roda kanan mundur.
    - Roda berputar terbalik? Tukar dua kabel motor di OUT sisi itu, atau ubah `INVERT_LEFT` / `INVERT_RIGHT`
      jadi `1` lalu upload ulang.
@@ -337,7 +363,11 @@ Lalu di lantai:
 
 | Gejala | Yang dicek |
 |---|---|
-| `DRV`, `PUMP`, `NOZ` di Serial Monitor tidak berpengaruh | belum mengetik `MODE M` (robot menyala dalam mode Otomatis) |
+| Roda tidak bergerak sama sekali | jalankan `tes_motor` (langkah 3, nomor 6) dan cocokkan hasilnya dengan tabel di sana |
+| Serial Monitor menampilkan huruf acak | baud belum 57600 |
+| Muncul `# Diabaikan: robot sedang mode OTOMATIS` | ketik `MODE M` dulu (robot menyala dalam mode Otomatis) |
+| Muncul `# Roda diperintah berputar...` tapi roda diam | perintah sudah sampai ke Uno; cek kabel L298N, GND bersama, dan baterai dengan `tes_motor` |
+| Roda cuma berdengung, tidak berputar | PWM terlalu kecil untuk beban robot: `SPD 255`, lalu naikkan `MIN_PWM` di sketch |
 | Robot bergerak sendiri padahal tidak ada api | cahaya lampu/matahari terbaca sebagai api: jauhi jendela, atau **turunkan** `FLAME_WARN` |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
 | Robot menabrak lilin | `FLAME_DANGER` terlalu kecil, naikkan |

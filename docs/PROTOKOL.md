@@ -13,6 +13,10 @@ Prinsipnya sengaja dibuat sederhana:
 - **Robot → dashboard**: JSON satu baris (diakhiri `\n`). Uno mencetaknya langsung pakai `Serial.print`.
 - **ESP bridge hanya meneruskan.** Satu-satunya yang dijawab sendiri oleh ESP adalah `PING`,
   dan ia menambahkan pesan `bridge` berisi alamat IP dan kekuatan sinyal.
+- **Baris yang diawali `#` adalah pesan untuk manusia** yang menguji lewat Serial Monitor, misalnya
+  `# Diabaikan: robot sedang mode OTOMATIS. Ketik MODE M dulu.` ESP bridge hanya meneruskan baris yang
+  diawali `{`, jadi pesan ini tidak pernah sampai ke dashboard. Isinya boleh berubah antar versi firmware;
+  jangan dijadikan dasar logika program.
 
 ## Perintah (dashboard → robot)
 
@@ -25,6 +29,7 @@ Prinsipnya sengaja dibuat sederhana:
 | `DRV <x> <y>` | Gerak manual. x: kanan+, y: maju+, masing-masing −100..100 | **Harus dikirim ulang < 600 ms sekali** (dead-man), dashboard mengirim 10×/detik |
 | `SPD <n>` | Batas kecepatan manual, 0..255 | Dikirim dashboard saat tersambung dan saat slider digeser |
 | `STOP` | Berhenti darurat: motor mati, pompa mati, masuk mode manual | |
+| `HELP` / `?` | Daftar perintah | Dijawab dengan baris `#`, untuk Serial Monitor |
 | **FireGuard** | | |
 | `PUMP 1` / `PUMP 0` | Pompa manual | `PUMP 1` juga harus diulang < 600 ms sekali, kalau tidak pompa mati sendiri |
 | `NOZ <sudut>` | Arah nozzle manual | Dibatasi `NOZ_MIN..NOZ_MAX` di firmware |
@@ -32,8 +37,14 @@ Prinsipnya sengaja dibuat sederhana:
 | `BRUSH <persen>` | Motor sapu, 0..100 (0 = mati) | Nilai > 0 di bawah `BRUSH_MIN_PCT` (35) dinaikkan ke 35. Kecepatan naik pelan (soft-start) |
 | `LIFT 1` / `LIFT 0` | Angkat / turunkan sapu (servo) | |
 
-Perintah `DRV`, `PUMP`, `NOZ`, `BRUSH`, `LIFT` **diabaikan di mode otomatis**. Perintah yang tidak dikenal
-atau kepanjangan (> 31 karakter) dibuang tanpa efek apa pun.
+Perintah `DRV`, `PUMP`, `NOZ`, `BRUSH`, `LIFT` **diabaikan di mode otomatis**. Perintah yang tidak dikenal,
+yang formatnya salah, atau yang kepanjangan (> 31 karakter) dibuang tanpa efek apa pun. Untuk semua kasus itu
+(kecuali yang kepanjangan) Uno menulis satu baris `#` sebagai penjelasan, paling sering sekali per 2 detik untuk
+pesan yang sama.
+
+Huruf besar dan kecil tidak dibedakan (`drv 0 60` = `DRV 0 60`). Satu perintah diakhiri `\n` atau `\r`.
+Kalau tidak ada keduanya (pilihan "No line ending" di Serial Monitor), perintah dijalankan setelah 0,5 detik
+tanpa karakter baru (`LINE_IDLE_MS`).
 
 ## Pesan dari robot (robot → dashboard)
 
@@ -44,7 +55,7 @@ Semua pesan punya field `t` (jenis).
 FireGuard:
 
 ```json
-{"t":"info","robot":"fireguard","fw":"1.0.0",
+{"t":"info","robot":"fireguard","fw":"1.1.0",
  "flame":["Kiri","Kanan"],"flamePins":["A0","A1"],
  "gas":["MQ-2"],"gasPins":["A3"],
  "th":{"fw":700,"fd":400,"gw":350,"gd":550},
@@ -57,7 +68,7 @@ Jadi mengganti `FLAME_COUNT` di firmware sudah cukup, dashboard tidak perlu diub
 EcoBot (penyapu):
 
 ```json
-{"t":"info","robot":"ecobot","kind":"sweeper","fw":"2.0.0",
+{"t":"info","robot":"ecobot","kind":"sweeper","fw":"2.1.0",
  "us":["Depan","Kiri-depan","Kanan-depan","Kiri","Kanan","Wadah"],
  "pins":["A0","A1","A2","A3","A4","D13"],
  "th":{"det":50,"near":20,"side":10,"binE":20,"binF":4},

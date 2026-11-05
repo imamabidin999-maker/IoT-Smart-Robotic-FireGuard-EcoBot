@@ -22,6 +22,9 @@ dengan data sungguhan.
 2. **Upload sketch ke Arduino Uno**: `firmware/fireguard_uno/` atau `firmware/ecobot_uno/`.
    Lepas kabel D0/D1 ke ESP saat upload. Sesuaikan bagian KONFIGURASI di atas sketch (jumlah sensor, arah motor, sudut servo).
    Di modul L298N, **cabut jumper ENA dan ENB** dulu (lihat `docs/WIRING.md` bagian 2).
+   Belum yakin kabel motornya benar? Upload dulu `firmware/tes_motor/`: roda diputar sendiri dengan urutan tetap,
+   tanpa perlu mengetik perintah. Sketch robot juga bisa diuji langsung dari Serial Monitor (57600); Uno menjawab
+   dengan baris berawalan `#` kalau perintah diabaikan atau salah ketik.
 3. **Upload `firmware/esp_bridge/` ke ESP** (ESP32 atau ESP8266): isi nama WiFi, password, dan `ROBOT_NAME`.
    Library yang perlu dipasang lewat Library Manager: *WebSockets* (Markus Sattler), dan *PubSubClient* kalau mau MQTT.
 4. **Upload `firmware/esp32cam_stream/` ke ESP32-CAM**: isi WiFi dan `CAM_HOSTNAME`.
@@ -89,11 +92,12 @@ Beberapa hal di daftar komponen tidak sepenuhnya jelas bagi saya. Ini yang saya 
 
 Yang sudah dijalankan otomatis:
 
-- **Firmware Uno** dikompilasi dengan `avr-g++` untuk ATmega328P: nol peringatan dari sketch. Memori terpakai sekitar 10 KB flash
+- **Firmware Uno** dikompilasi dengan `avr-g++` untuk ATmega328P: nol peringatan dari sketch. Memori terpakai sekitar 11–13 KB flash
   dan 0,5 KB RAM (Uno punya 32 KB dan 2 KB).
-- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 22 skenario diperiksa
+- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 32 skenario diperiksa
   (JSON valid di tiap baris, siaga → belok → semprot → jeda, batas 15 detik pompa, dead-man, soft-start sapu, servo pengangkat,
-  menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah).
+  menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah, perintah dari Serial Monitor: huruf kecil,
+  tanpa Enter, pesan `#` saat perintah diabaikan).
 - **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 59 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
   (`tools/mock-robot`), termasuk server mati lalu hidup lagi, stream kamera macet, dan lima ukuran layar. Setiap tes memastikan
   **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
@@ -130,6 +134,8 @@ cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau 
 | ESP32-CAM "Brownout detector" atau video putus-putus | daya kurang. Tambah kapasitor dan pakai 5 V ≥ 1 A |
 | `fireguard.local` tidak ketemu di HP | mDNS sering tidak jalan di Android. Pakai alamat IP |
 | Dashboard https tidak bisa tersambung | browser memblokir `ws://` dari halaman https. Buka lewat `file://` atau `http://` |
+| Roda tidak bergerak sama sekali | upload `firmware/tes_motor/` lalu cocokkan hasilnya dengan tabel di panduan rakit (langkah 3). Yang paling sering: GND Uno belum disatukan dengan GND L298N, jumper ENA/ENB dicabut tapi pin ENA/ENB belum disambung, atau baterai cuma satu sel |
+| Perintah di Serial Monitor tidak berpengaruh | baud harus 57600. FireGuard menyala dalam mode Otomatis: ketik `MODE M` dulu. Baca juga baris `#` yang dibalas Uno |
 | Roda berputar terbalik | `INVERT_LEFT` / `INVERT_RIGHT` di sketch |
 | Pompa menyala saat seharusnya mati | `PUMP_ACTIVE_HIGH 0` (modul relay aktif-LOW) |
 | Slider kecepatan tidak berpengaruh, motor selalu kencang | jumper ENA/ENB di L298N belum dicabut |
@@ -144,8 +150,8 @@ cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau 
 index.html                  pilih robot
 fireguard/  ecobot/         satu dashboard per robot (index.html, logika robot, simulator)
 shared/                     dipakai keduanya: css, font, library MQTT, js (koneksi, joystick, kamera, grafik, log, alarm, pengaturan)
-firmware/                   sketch Arduino Uno (2), ESP bridge, ESP32-CAM
-docs/                       PROTOKOL.md, WIRING.md
+firmware/                   sketch Arduino Uno (2), ESP bridge, ESP32-CAM, tes_motor (uji roda tanpa perintah)
+docs/                       PROTOKOL.md, WIRING.md, RAKIT-FIREGUARD.md, RAKIT-ECOBOT.md
 tools/mock-robot/           robot palsu (WebSocket, MQTT, kamera) untuk uji dan coba-coba
 tests/                      uji dashboard (Playwright) dan uji logika firmware (di PC)
 ```
