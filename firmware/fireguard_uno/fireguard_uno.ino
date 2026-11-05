@@ -20,7 +20,7 @@
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
-#define FW_VERSION      "1.0.0"
+#define FW_VERSION      "1.1.0"
 #define SERIAL_BAUD     57600
 
 // ---- jumlah sensor yang terpasang ----
@@ -81,6 +81,7 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
 
 // ---- waktu ----
 #define DEADMAN_MS      600UL     // perintah DRV/PUMP harus diperbarui lebih sering dari ini
+#define LINE_IDLE_MS    500UL     // baris tanpa Enter (Serial Monitor "No line ending") dijalankan setelah jeda ini
 #define TEL_EVERY_MS    250UL
 #define SENSOR_EVERY_MS 40UL
 
@@ -132,6 +133,8 @@ static int   speedCap = DEFAULT_SPEED;
 static int   manualX = 0, manualY = 0;
 static unsigned long lastDrv = 0;
 static int   lastSpeed = 0;          // kecepatan motor yang dilaporkan (0..255)
+static int   outL = 0, outR = 0;     // PWM terakhir per sisi (-255..255), untuk pesan di Serial Monitor
+static bool  drvHintDue = false;     // DRV baru saja menggerakkan robot dari diam
 
 static bool  pumpOn = false;
 static bool  manualPump = false;
@@ -154,6 +157,51 @@ static unsigned long lastSensor = 0;
 static char  lineBuf[32];
 static uint8_t lineLen = 0;
 static bool  lineOverflow = false;
+static unsigned long lastRxMs = 0;
+
+// ==================================================================
+//  Pesan untuk orang yang menguji lewat Serial Monitor
+// ==================================================================
+// Baris yang diawali '#' hanya untuk dibaca manusia. ESP bridge cuma meneruskan baris JSON
+// (diawali '{'), jadi pesan ini tidak pernah sampai ke dashboard.
+#define STR_(x) #x
+#define XSTR(x) STR_(x)
+enum Hint : uint8_t { H_NONE, H_AUTO, H_UNKNOWN, H_FMT_MODE, H_FMT_DRV, H_FMT_SPD, H_FMT_PUMP, H_FMT_NOZ };
+static uint8_t lastHint = H_NONE;
+static unsigned long lastHintMs = 0;
+
+// pesan yang sama paling sering sekali per 2 detik, supaya Serial Monitor tidak banjir
+// (mis. saat dashboard terus mengirim perintah yang ditolak, atau ada derau di jalur Serial)
+static bool hintOk(uint8_t id, unsigned long now) {
+  if (id == lastHint && now - lastHintMs < 2000UL) return false;
+  lastHint = id; lastHintMs = now;
+  return true;
+}
+
+static void hintAutoMode(unsigned long now) {
+  if (hintOk(H_AUTO, now)) Serial.print(F("# Diabaikan: robot sedang mode OTOMATIS. Ketik MODE M dulu.\n"));
+}
+
+static void hintFormat(uint8_t id, const __FlashStringHelper* usage, unsigned long now) {
+  if (!hintOk(id, now)) return;
+  Serial.print(F("# Format: ")); Serial.print(usage); Serial.print('\n');
+}
+
+// tidak dibatasi: pesan ini hanya muncul saat robot mulai bergerak dari diam
+static void hintDrive() {
+  if (!outL && !outR) { Serial.print(F("# Roda tidak berputar: batas kecepatan SPD 0. Ketik misalnya SPD 200.\n")); return; }
+  Serial.print(F("# Roda diperintah berputar: kiri ")); Serial.print(outL);
+  Serial.print(F(", kanan "));                         Serial.print(outR);
+  Serial.print(F(" (PWM, maks 255). Berhenti sendiri "));
+  Serial.print(DEADMAN_MS);
+  Serial.print(F(" ms setelah perintah terakhir.\n"));
+}
+
+static void printHelp() {
+  Serial.print(F("# Perintah: GET, INFO, MODE A (otomatis), MODE M (manual), STOP,\n"
+                 "#   DRV x y (x belok, y maju, -100..100), SPD 0..255 (batas kecepatan),\n"
+                 "#   PUMP 1 / PUMP 0, NOZ " XSTR(NOZ_MIN) ".." XSTR(NOZ_MAX) ". Huruf kecil juga boleh.\n"));
+}
 
 // ==================================================================
 //  Motor
@@ -167,6 +215,7 @@ static void driveSide(int v, uint8_t inA, uint8_t inB, uint8_t en) {
 // left/right: -255..255 (negatif = mundur)
 static void motorSet(int left, int right) {
   lastSpeed = max(abs(left), abs(right));
+  outL = left; outR = right;
   if (INVERT_LEFT)  left  = -left;
   if (INVERT_RIGHT) right = -right;
   driveSide(left,  PIN_IN1, PIN_IN2, PIN_ENA);
@@ -328,6 +377,7 @@ static void autoStep(unsigned long now) {
 static void manualStep(unsigned long now) {
   if ((manualX != 0 || manualY != 0) && now - lastDrv > DEADMAN_MS) { manualX = 0; manualY = 0; }   // dead-man
   driveVector(manualX, manualY, speedCap);
+  if (drvHintDue) { drvHintDue = false; hintDrive(); }
 
   if (manualPump && now - lastPumpCmd > DEADMAN_MS) manualPump = false;                              // dead-man pompa
   pumpSet(manualPump);
@@ -337,6 +387,7 @@ static void manualStep(unsigned long now) {
 static void setMode(Mode m, unsigned long now) {
   mode = m;
   manualX = manualY = 0;
+  drvHintDue = false;
   manualPump = false;
   motorStop();
   pumpSet(false);
@@ -403,7 +454,7 @@ static void sendTelemetry(unsigned long now) {
 }
 
 // ==================================================================
-//  Perintah dari dashboard (lewat ESP)
+//  Perintah dari dashboard (lewat ESP) atau Serial Monitor
 // ==================================================================
 static int clampi(long v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : (int)v); }
 
@@ -412,53 +463,78 @@ static void handleLine(char* line, unsigned long now) {
   if (!cmd) return;
   char* a1 = strtok(NULL, " ");
   char* a2 = strtok(NULL, " ");
+  bool manual = (mode == MODE_MANUAL);
 
   if (!strcmp(cmd, "GET"))  { sendTelemetry(now); return; }
   if (!strcmp(cmd, "INFO")) { sendInfo(); sendTelemetry(now); return; }
+  if (!strcmp(cmd, "HELP") || !strcmp(cmd, "?")) { printHelp(); return; }
+  if (!strcmp(cmd, "PING")) return;                    // sudah dijawab ESP
 
-  if (!strcmp(cmd, "MODE") && a1) {
-    if (a1[0] == 'A')      setMode(MODE_AUTO, now);
-    else if (a1[0] == 'M') setMode(MODE_MANUAL, now);
+  if (!strcmp(cmd, "MODE")) {
+    if (a1 && a1[0] == 'A')      setMode(MODE_AUTO, now);
+    else if (a1 && a1[0] == 'M') setMode(MODE_MANUAL, now);
+    else { hintFormat(H_FMT_MODE, F("MODE A (otomatis) atau MODE M (manual)"), now); return; }
     sendTelemetry(now);
     return;
   }
-  if (!strcmp(cmd, "DRV") && a1 && a2) {
-    if (mode == MODE_MANUAL) {
-      manualX = clampi(atol(a1), -100, 100);
-      manualY = clampi(atol(a2), -100, 100);
-      lastDrv = now;
-    }
+  if (!strcmp(cmd, "DRV")) {
+    if (!a1 || !a2) { hintFormat(H_FMT_DRV, F("DRV x y, x belok -100..100, y maju -100..100. Contoh: DRV 0 60"), now); return; }
+    int x = clampi(atol(a1), -100, 100);
+    int y = clampi(atol(a2), -100, 100);
+    if (!manual) { if (x || y) hintAutoMode(now); return; }
+    if ((x || y) && !manualX && !manualY) drvHintDue = true;   // mulai bergerak dari diam
+    manualX = x; manualY = y;
+    lastDrv = now;
     return;
   }
-  if (!strcmp(cmd, "SPD") && a1) { speedCap = clampi(atol(a1), 0, 255); return; }
+  if (!strcmp(cmd, "SPD")) {
+    if (!a1) { hintFormat(H_FMT_SPD, F("SPD 0..255 (batas kecepatan). Contoh: SPD 200"), now); return; }
+    speedCap = clampi(atol(a1), 0, 255);
+    return;
+  }
   if (!strcmp(cmd, "STOP")) {
     setMode(MODE_MANUAL, now);
     sendTelemetry(now);
     return;
   }
-  if (!strcmp(cmd, "PUMP") && a1) {
-    if (mode == MODE_MANUAL) { manualPump = (a1[0] == '1'); lastPumpCmd = now; }
+  if (!strcmp(cmd, "PUMP")) {
+    if (!a1) { hintFormat(H_FMT_PUMP, F("PUMP 1 (nyala selama perintah terus diulang) atau PUMP 0"), now); return; }
+    bool on = (a1[0] == '1');
+    if (!manual) { if (on) hintAutoMode(now); return; }
+    manualPump = on; lastPumpCmd = now;
     return;
   }
-  if (!strcmp(cmd, "NOZ") && a1) {
-    if (mode == MODE_MANUAL) nozManual = clampi(atol(a1), NOZ_MIN, NOZ_MAX);
+  if (!strcmp(cmd, "NOZ")) {
+    if (!a1) { hintFormat(H_FMT_NOZ, F("NOZ " XSTR(NOZ_MIN) ".." XSTR(NOZ_MAX) ". Contoh: NOZ " XSTR(NOZ_HOME)), now); return; }
+    if (!manual) { hintAutoMode(now); return; }
+    nozManual = clampi(atol(a1), NOZ_MIN, NOZ_MAX);
     return;
   }
-  // perintah lain (mis. PING yang sudah dijawab ESP) diabaikan
+  if (hintOk(H_UNKNOWN, now)) {
+    Serial.print(F("# Perintah tidak dikenal: ")); Serial.print(cmd);
+    Serial.print(F(". Ketik HELP untuk daftar perintah.\n"));
+  }
+}
+
+static void finishLine(unsigned long now) {
+  if (lineLen > 0 && !lineOverflow) { lineBuf[lineLen] = '\0'; handleLine(lineBuf, now); }
+  lineLen = 0; lineOverflow = false;
 }
 
 static void readSerial(unsigned long now) {
   while (Serial.available() > 0) {
     char c = (char)Serial.read();
+    lastRxMs = now;
     if (c == '\n' || c == '\r') {
-      if (lineLen > 0 && !lineOverflow) { lineBuf[lineLen] = '\0'; handleLine(lineBuf, now); }
-      lineLen = 0; lineOverflow = false;
+      finishLine(now);
     } else if (lineLen < sizeof(lineBuf) - 1) {
-      lineBuf[lineLen++] = c;
+      lineBuf[lineLen++] = (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;   // huruf kecil juga diterima
     } else {
       lineOverflow = true;      // baris kepanjangan: buang sampai ketemu newline
     }
   }
+  // Serial Monitor dengan pilihan "No line ending" tidak mengirim Enter: jalankan setelah jeda
+  if ((lineLen > 0 || lineOverflow) && now - lastRxMs >= LINE_IDLE_MS) finishLine(now);
 }
 
 // ==================================================================
@@ -481,6 +557,10 @@ void setup() {
   readSensors(now);
   setMode(MODE_AUTO, now);
   sendInfo();
+  Serial.print(F("# FireGuard " FW_VERSION " siap, mode OTOMATIS: diam sampai sensor api melihat api.\n"
+                 "# Uji dari Serial Monitor: ketik MODE M, lalu DRV 0 60 (maju) atau DRV 60 0 (putar kanan).\n"
+                 "# Sensor api belum dipasang? Ketik MODE M dulu, pin yang kosong bisa terbaca seperti ada api.\n"
+                 "# HELP = daftar perintah.\n"));
 }
 
 void loop() {

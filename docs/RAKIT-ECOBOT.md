@@ -116,13 +116,39 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    | IN4 | D10 |
    | ENB | D6 |
 
-5. Uno VIN ← baterai (+), Uno GND ← GND bersama.
-6. **Upload sketch** `firmware/ecobot_uno/ecobot_uno.ino` lewat USB (D0/D1 jangan dulu disambung ke apa pun).
-7. **Uji lewat Serial Monitor**, dengan roda **diangkat** dari lantai:
-   - Arduino IDE → Serial Monitor, baud **57600**, akhir baris **Newline**.
-   - Akan terlihat baris JSON 4× per detik. Itu normal.
-   - Ketik `DRV 0 60` lalu Enter. Kedua roda harus berputar **maju** sekitar setengah detik lalu berhenti
-     sendiri. Robot memang berhenti sendiri kalau perintah tidak diulang (pengaman dead-man).
+5. Uno VIN ← baterai (+), Uno GND ← GND bersama. **GND Uno wajib tersambung ke GND L298N**, juga saat Uno
+   hanya diberi daya dari USB laptop. Tanpa GND bersama, sinyal dari Uno tidak dikenali L298N dan roda diam.
+6. **Uji motor dulu dengan sketch `firmware/tes_motor/tes_motor.ino`.** Sketch ini memutar roda sendiri
+   dengan urutan tetap, tanpa perlu mengetik apa pun, jadi masalah kabel dan daya bisa dipisahkan dari masalah
+   perintah. Angkat robot, upload, nyalakan saklar baterai, lalu perhatikan roda. Buka Serial Monitor
+   (baud 57600) kalau ingin melihat langkah yang sedang berjalan.
+
+   | Yang terlihat | Artinya |
+   |---|---|
+   | Urutannya pas: kiri maju, kiri mundur, kanan maju, kanan mundur, lalu dua sisi makin kencang | Kabel, motor, dan daya beres. Lanjut ke nomor 7 |
+   | Satu sisi berputar ke arah yang terbalik | Tukar dua kabel motor di terminal OUT sisi itu |
+   | Tertulis "KIRI", tapi yang berputar roda kanan | Kabel OUT1/OUT2 tertukar dengan OUT3/OUT4, atau IN1/IN2 tertukar dengan IN3/IN4 |
+   | Hanya satu sisi yang berputar | Cek kabel sisi yang diam: kiri = IN1, IN2, ENA; kanan = IN3, IN4, ENB. Cek juga terminal OUT dan kabel motornya |
+   | Tidak ada roda yang berputar, lampu L298N menyala | GND Uno belum tersambung ke GND L298N; jumper ENA/ENB sudah dicabut tapi ENA/ENB belum disambung ke D5/D6; kabel IN di pin yang salah; atau baterai terlalu lemah |
+   | Tidak ada roda yang berputar, lampu L298N mati | Daya L298N belum masuk: cek langkah 2 (tegangan baterai, terminal 12V, jumper 5V-EN) |
+   | Tulisan `=== TES MOTOR RODA ===` muncul lagi setiap roda mulai berputar | Uno restart karena tegangan turun saat motor menyala: baterai lemah atau cuma satu sel. Isi baterai, atau sementara beri daya Uno dari USB |
+   | Saat `5/5` (kecepatan naik pelan) kecepatannya tidak berubah, langsung kencang | Jumper ENA/ENB masih terpasang. Untuk tes ini tidak apa, tapi cabut sebelum memakai firmware robot |
+   | Saat `5/5` roda baru mulai berputar di PWM tinggi (mis. di atas 120) | Motor butuh tenaga lebih. Di firmware robot naikkan `MIN_PWM` ke angka itu + ±20 dan `DEFAULT_SPEED` ke ±200, karena di lantai bebannya lebih berat daripada saat roda diangkat |
+
+7. **Upload sketch** `firmware/ecobot_uno/ecobot_uno.ino` lewat USB (D0/D1 jangan dulu disambung ke apa pun).
+   Pastikan Arduino IDE menulis *Done uploading*; kalau upload gagal, sketch lama yang tetap berjalan.
+8. **Uji lewat Serial Monitor**, dengan roda **diangkat** dari lantai:
+   - Arduino IDE → Serial Monitor, baud **57600**. Pilihan akhir baris apa saja boleh, huruf kecil juga boleh.
+     Kalau yang muncul huruf acak, baud-nya belum 57600.
+   - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya `# EcoBot 2.1.0 siap, mode MANUAL`.
+     Baris `#` adalah pesan untuk Anda. Setelah itu baris JSON muncul 4× per detik, itu juga normal.
+   - Ketik `DRV 0 60` lalu Enter. Uno membalas `# Roda diperintah berputar: kiri 124, kanan 124 ...` dan kedua
+     sisi roda harus berputar **maju** sekitar setengah detik lalu berhenti sendiri. Robot memang berhenti sendiri
+     kalau perintah tidak diulang (pengaman dead-man).
+   - Pesan itu muncul tapi roda diam? Berarti perintahnya sudah sampai dan Uno sudah mengirim sinyal; masalahnya
+     di kabel atau daya. Kembali ke nomor 6 (`tes_motor`). Kalau roda cuma berdengung, ketik `SPD 255` lalu `DRV 0 100`.
+   - Kalau yang muncul `# Maju ditahan: ada benda <= 6 cm di depan`, ada sensor depan yang mendeteksi benda
+     sangat dekat. Gerak maju memang ditahan, belok dan mundur tetap bisa.
    - Ketik `DRV 60 0`. Robot harus berputar ke **kanan**: roda kiri maju, roda kanan mundur.
    - Roda berputar terbalik? Tukar dua kabel motor di OUT sisi itu, atau ubah `INVERT_LEFT` / `INVERT_RIGHT`
      jadi `1` lalu upload ulang.
@@ -303,6 +329,12 @@ Lalu di lantai:
 |---|---|
 | Uno restart saat sapu/servo mulai bergerak | servo dan ESP harus dari buck, bukan pin 5V Uno; dioda motor sapu terpasang; kabel GND bersama cukup besar |
 | Motor roda selalu kencang | jumper ENA/ENB di L298N belum dicabut |
+| Roda tidak bergerak sama sekali | jalankan `tes_motor` (langkah 3, nomor 6) dan cocokkan hasilnya dengan tabel di sana |
+| Serial Monitor menampilkan huruf acak | baud belum 57600 |
+| Muncul `# Roda diperintah berputar...` tapi roda diam | perintah sudah sampai ke Uno; cek kabel L298N, GND bersama, dan baterai dengan `tes_motor` |
+| Roda cuma berdengung, tidak berputar | PWM terlalu kecil untuk beban robot: `SPD 255`, lalu naikkan `MIN_PWM` di sketch |
+| Lampu "L" di Uno menyala terus | normal selama sensor Wadah belum dipasang: pin Echo-nya (D13) sama dengan lampu itu dan sengaja ditarik ke HIGH |
+| Muncul `# Maju ditahan` padahal tidak ada benda | sensor depan/serong depan membaca pantulan dari badan robot atau sikat: geser posisinya, lihat angka `"d"` di `GET` |
 | Relay langsung menyala begitu robot dinyalakan | `BRUSH_USE_PWM` belum `0`, atau `BRUSH_ACTIVE_HIGH` terbalik |
 | Relay berbunyi klik tapi sapu diam | motor tersambung ke NC, bukan NO; COM belum diberi baterai (+); GND motor |
 | Relay tidak berbunyi sama sekali | VCC/GND relay, kabel D3, sudah mode Manual (`BRUSH` diabaikan di mode Otomatis) |

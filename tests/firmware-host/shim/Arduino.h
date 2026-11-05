@@ -23,6 +23,7 @@ class __FlashStringHelper;
 #define LOW 0
 #define INPUT 0
 #define OUTPUT 1
+#define INPUT_PULLUP 2
 #define LED_BUILTIN 13
 #define A0 14
 #define A1 15
@@ -42,12 +43,13 @@ extern int g_pin_pwm[64];
 extern int g_analog[64];
 extern unsigned long g_echo_us[64];
 extern int g_servo_angle[64];
+extern int g_pin_mode[64];
 
 inline unsigned long millis() { return g_now_ms; }
 inline unsigned long micros() { return g_now_ms * 1000UL; }
 inline void delayMicroseconds(unsigned int) {}
 inline void delay(unsigned long) {}
-inline void pinMode(uint8_t, uint8_t) {}
+inline void pinMode(uint8_t pin, uint8_t mode) { g_pin_mode[pin] = mode; }
 inline void digitalWrite(uint8_t pin, uint8_t v) { g_pin_state[pin] = v; }
 inline int digitalRead(uint8_t pin) { return g_pin_state[pin]; }
 inline void analogWrite(uint8_t pin, int v) { g_pin_pwm[pin] = v; }

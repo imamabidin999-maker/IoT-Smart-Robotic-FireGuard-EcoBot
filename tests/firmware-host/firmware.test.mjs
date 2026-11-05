@@ -1,7 +1,8 @@
 // Uji logika firmware Uno di PC (tanpa hardware).
 // Sketch .ino asli dikompilasi dengan shim Arduino, dijalankan dengan sensor palsu,
-// lalu keluaran Serial-nya diperiksa: setiap baris harus JSON valid, dan perilaku
-// (state machine otomatis, dead-man timer, urutan ambil sampah, dll) harus sesuai.
+// lalu keluaran Serial-nya diperiksa: setiap baris harus JSON valid (kecuali pesan untuk manusia
+// di Serial Monitor yang diawali '#'), dan perilaku (state machine otomatis, dead-man timer,
+// urutan ambil sampah, dll) harus sesuai.
 //
 // Jalankan:  node --test tests/firmware-host/
 import { test, before, after } from 'node:test';
@@ -31,6 +32,7 @@ class Host {
     this.chain = Promise.resolve();       // perintah selalu diproses berurutan
     this.tels = [];
     this.infos = [];
+    this.notes = [];                      // baris '#' untuk dibaca manusia di Serial Monitor
     this.proc.stdout.on('data', (d) => { this.buf += d; this._drain(); });
   }
   _drain() {
@@ -58,6 +60,7 @@ class Host {
     for (const l of lines) {
       if (l.startsWith('OUT ')) {
         const text = l.slice(4);
+        if (text.startsWith('#')) { this.notes.push(text); continue; }
         let obj;
         try { obj = JSON.parse(text); } catch (e) { assert.fail(`Keluaran Serial bukan JSON valid: ${text}`); }
         if (obj.t === 'tel') this.tels.push(obj);
@@ -132,7 +135,7 @@ test('FireGuard: pesan info & telemetri adalah JSON valid dengan isi yang benar'
   await fgBoot(h);
   const info = h.infos[0];
   assert.equal(info.robot, 'fireguard');
-  assert.equal(info.fw, '1.0.0');
+  assert.equal(info.fw, '1.1.0');
   assert.deepEqual(info.flame, ['Kiri', 'Kanan']);
   assert.deepEqual(info.flamePins, ['A0', 'A1']);
   assert.deepEqual(info.gas, ['MQ-2']);
@@ -356,7 +359,7 @@ test('EcoBot sapu: info & telemetri JSON valid, urutan sensor benar, posisi isti
   const info = h.infos[0];
   assert.equal(info.robot, 'ecobot');
   assert.equal(info.kind, 'sweeper');
-  assert.equal(info.fw, '2.0.0');
+  assert.equal(info.fw, '2.1.0');
   assert.deepEqual(info.us, ['Depan', 'Kiri-depan', 'Kanan-depan', 'Kiri', 'Kanan', 'Wadah']);
   assert.deepEqual(info.pins, ['A0', 'A1', 'A2', 'A3', 'A4', 'D13']);
   assert.deepEqual(info.th, { det: 50, near: 20, side: 10, binE: 20, binF: 4 });
@@ -582,4 +585,157 @@ test('EcoBot sapu: STOP menghentikan semua (roda, sapu) dan masuk manual; baris 
   const r = await h.send('GET');
   assert.equal(r.filter((o) => o.t === 'tel').length, 1);
   assert.equal(h.tel().st, 'manual');
+});
+
+// ====================================================================
+//  Uji lewat Serial Monitor (tanpa dashboard)
+// ====================================================================
+const notesSince = (h, n) => h.notes.slice(n);
+
+test('Serial Monitor: pesan pembuka menyebut versi & mode, baris lain tetap JSON', async () => {
+  const fg = mk(binFG);
+  await fgBoot(fg);
+  assert.ok(fg.notes.some((l) => /^# FireGuard 1\.1\.0 siap, mode OTOMATIS/.test(l)), fg.notes.join('\n'));
+  assert.ok(fg.notes.some((l) => /Ketik MODE M dulu/.test(l)));
+  assert.ok(fg.infos.length >= 1 && fg.tels.length >= 1, 'info & telemetri tetap terkirim');
+  const eb = mk(binEB);
+  await ebBoot(eb);
+  assert.ok(eb.notes.some((l) => /^# EcoBot 2\.1\.0 siap, mode MANUAL/.test(l)), eb.notes.join('\n'));
+});
+
+test('Serial Monitor: perintah huruf kecil diterima', async () => {
+  const h = mk(binFG);
+  await fgBoot(h);
+  await h.send('mode m'); await h.t(50);
+  assert.equal(h.tel().m, 'M');
+  await h.send('drv 0 100'); await h.t(50);
+  assert.deepEqual(await fgMotors(h), { l: 160, r: 160 });
+  await h.send('Stop'); await h.t(50);
+  assert.deepEqual(await fgMotors(h), { l: 0, r: 0 });
+});
+
+test('Serial Monitor: baris tanpa Enter ("No line ending") tetap dijalankan setelah jeda', async () => {
+  const h = mk(binFG);
+  await fgBoot(h);
+  await h.step('SN MODE M');
+  await h.t(200);
+  assert.equal(h.tel().m, 'A', 'belum dijalankan sebelum jeda');
+  await h.t(500);
+  assert.equal(h.tel().m, 'M', 'dijalankan setelah jeda ±0,5 detik');
+  await h.step('SN DRV 0 100');
+  await h.t(560);
+  assert.deepEqual(await fgMotors(h), { l: 160, r: 160 });
+});
+
+test('Serial Monitor: perintah yang diabaikan di mode otomatis diberi pesan, tanpa membanjiri', async () => {
+  const h = mk(binFG);
+  await fgBoot(h);
+  let n = h.notes.length;
+  await h.send('DRV 0 100');
+  assert.equal(notesSince(h, n).filter((l) => /mode OTOMATIS\. Ketik MODE M dulu/.test(l)).length, 1, notesSince(h, n).join('\n'));
+  assert.deepEqual(await fgMotors(h), { l: 0, r: 0 });
+  n = h.notes.length;
+  for (let i = 0; i < 5; i++) await h.send('DRV 0 100');
+  assert.equal(notesSince(h, n).length, 0, 'pesan yang sama tidak diulang dalam 2 detik');
+  await h.t(2100);
+  n = h.notes.length;
+  await h.send('DRV 0 0');                       // nol: tidak ada yang perlu diberitahukan
+  assert.equal(notesSince(h, n).length, 0);
+  await h.send('PUMP 1');
+  assert.equal(notesSince(h, n).filter((l) => /Ketik MODE M dulu/.test(l)).length, 1);
+});
+
+test('Serial Monitor: format salah & perintah tak dikenal dijelaskan, PING tetap diam, HELP berisi daftar', async () => {
+  const h = mk(binFG);
+  await fgBoot(h);
+  await h.send('MODE M');
+  let n = h.notes.length;
+  await h.send('PING 123');
+  assert.equal(notesSince(h, n).length, 0, 'PING tidak perlu pesan');
+  await h.send('DRV 5');
+  assert.ok(notesSince(h, n).some((l) => /^# Format: DRV x y/.test(l)), notesSince(h, n).join('\n'));
+  await h.send('SPD');                           // format salah perintah lain: tetap dijelaskan walau berdekatan
+  assert.ok(notesSince(h, n).some((l) => /^# Format: SPD 0\.\.255/.test(l)), notesSince(h, n).join('\n'));
+  await h.send('MAJU');
+  assert.ok(notesSince(h, n).some((l) => /^# Perintah tidak dikenal: MAJU\. Ketik HELP/.test(l)));
+  n = h.notes.length;
+  await h.send('help');
+  const help = notesSince(h, n).join('\n');
+  assert.match(help, /DRV x y/);
+  assert.match(help, /PUMP 1/);
+  assert.match(help, /NOZ 40\.\.140/);
+});
+
+test('Serial Monitor: DRV yang diterima menyebut PWM tiap sisi, sekali per gerakan', async () => {
+  const h = mk(binFG);
+  await fgBoot(h);
+  await h.send('MODE M');
+  let n = h.notes.length;
+  await h.send('DRV 0 60'); await h.t(20);
+  const msg = notesSince(h, n).filter((l) => /^# Roda diperintah berputar/.test(l));
+  assert.equal(msg.length, 1, notesSince(h, n).join('\n'));
+  assert.match(msg[0], /kiri 124, kanan 124 \(PWM, maks 255\)\. Berhenti sendiri 600 ms/);
+  n = h.notes.length;
+  for (let i = 0; i < 4; i++) { await h.send('DRV 0 60'); await h.t(100); }
+  assert.equal(notesSince(h, n).length, 0, 'selama terus bergerak tidak diulang');
+  await h.t(700);                                // dead-man menghentikan robot
+  n = h.notes.length;
+  await h.send('DRV 60 0'); await h.t(20);       // perintah berikutnya (< 2 detik dari pesan pertama) tetap dijawab
+  assert.ok(notesSince(h, n).some((l) => /kiri 124, kanan -124/.test(l)), notesSince(h, n).join('\n'));
+  await h.t(700);
+  await h.send('SPD 0');
+  n = h.notes.length;
+  await h.send('DRV 0 60'); await h.t(20);
+  assert.ok(notesSince(h, n).some((l) => /^# Roda tidak berputar: batas kecepatan SPD 0/.test(l)), notesSince(h, n).join('\n'));
+});
+
+test('EcoBot Serial Monitor: pin ECHO memakai pull-up, sensor yang belum dipasang terbaca -1 dan tidak menahan gerak', async () => {
+  const h = mk(binEB);
+  await ebBoot(h);                        // echo 0 = tidak ada pantulan, seperti sensor belum dipasang
+  for (const pin of Object.values(EB.E)) assert.equal(await h.q('QM', pin), 2, `pin ${pin} harus INPUT_PULLUP`);
+  await h.t(300);
+  assert.deepEqual(h.tel().d.slice(0, 5), [-1, -1, -1, -1, -1]);
+  await h.send('DRV 0 100'); await h.t(50);
+  assert.deepEqual(await ebMotors(h), { l: 160, r: 160 });
+});
+
+test('EcoBot Serial Monitor: maju yang ditahan pengaman diberi pesan berisi jarak sensor', async () => {
+  const h = mk(binEB);
+  await ebBoot(h, { depan: 4 });
+  const n = h.notes.length;
+  await h.send('DRV 0 100'); await h.t(50);
+  assert.deepEqual(await ebMotors(h), { l: 0, r: 0 });
+  const msg = notesSince(h, n).filter((l) => /^# Maju ditahan/.test(l));
+  assert.equal(msg.length, 1, notesSince(h, n).join('\n'));
+  assert.match(msg[0], /<= 6 cm di depan \(cm: Depan 4, Kiri-depan -1, Kanan-depan -1\)/);
+  assert.ok(!notesSince(h, n).some((l) => /Roda diperintah berputar/.test(l)), 'jangan bilang roda berputar kalau ditahan');
+});
+
+test('EcoBot Serial Monitor: huruf kecil diterima, BRUSH/LIFT di mode otomatis diberi pesan', async () => {
+  const h = mk(binEB);
+  await ebBoot(h);
+  await h.send('brush 70'); await h.t(800);
+  assert.equal(await brushPwm(h), Math.floor(70 * 255 / 100));
+  await h.send('brush 0');
+  await h.send('mode a'); await h.t(50);
+  assert.equal(h.tel().m, 'A');
+  const n = h.notes.length;
+  await h.send('LIFT 0');
+  assert.ok(notesSince(h, n).some((l) => /mode OTOMATIS\. Ketik MODE M dulu/.test(l)), notesSince(h, n).join('\n'));
+});
+
+test('Sketch tes_motor memakai pin L298N yang sama dengan firmware robot', () => {
+  const pins = (file) => {
+    const src = fs.readFileSync(path.join(root, file), 'utf8');
+    const out = {};
+    for (const k of ['ENA', 'IN1', 'IN2', 'ENB', 'IN3', 'IN4']) {
+      const m = src.match(new RegExp(`#define PIN_${k}\\s+(\\d+)`));
+      assert.ok(m, `${file}: PIN_${k} tidak ditemukan`);
+      out[k] = Number(m[1]);
+    }
+    return out;
+  };
+  const t = pins('firmware/tes_motor/tes_motor.ino');
+  assert.deepEqual(t, pins('firmware/fireguard_uno/fireguard_uno.ino'));
+  assert.deepEqual(t, pins('firmware/ecobot_uno/ecobot_uno.ino'));
 });

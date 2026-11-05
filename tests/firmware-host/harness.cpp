@@ -5,11 +5,13 @@
 //   INIT                 panggil setup()
 //   T <ms>               majukan waktu <ms> milidetik (loop() dipanggil tiap 5 ms)
 //   S <teks>             kirim satu baris ke Serial Uno (seperti dari ESP)
+//   SN <teks>            kirim teks TANPA newline (Serial Monitor "No line ending")
 //   A <pin> <nilai>      atur nilai analogRead(pin)
 //   E <pin> <cm>         atur jarak ultrasonik di pin ECHO (cm <= 0 = tidak ada pantulan)
 //   QP <pin>             cetak digitalWrite terakhir di pin
 //   QW <pin>             cetak analogWrite (PWM) terakhir di pin
 //   QS <pin>             cetak sudut servo terakhir di pin
+//   QM <pin>             cetak mode pin terakhir (0 INPUT, 1 OUTPUT, 2 INPUT_PULLUP)
 //   Keluaran Serial Uno muncul sebagai "OUT <baris>".
 
 #include "Arduino.h"
@@ -20,6 +22,7 @@ int g_pin_pwm[64] = {0};
 int g_analog[64] = {0};
 unsigned long g_echo_us[64] = {0};
 int g_servo_angle[64] = {0};
+int g_pin_mode[64] = {0};
 unsigned long g_rand_state = 12345;
 SerialShim Serial;
 
@@ -52,6 +55,8 @@ int main() {
     } else if (cmd == "S") {
       for (const char* p = arg; *p; p++) Serial.in.push_back(*p);
       Serial.in.push_back('\n');
+    } else if (cmd == "SN") {
+      for (const char* p = arg; *p; p++) Serial.in.push_back(*p);
     } else if (cmd == "A") {
       int pin, v;
       if (sscanf(arg, "%d %d", &pin, &v) == 2) g_analog[pin] = v;
@@ -64,6 +69,8 @@ int main() {
       printf("RES %d\n", g_pin_pwm[atoi(arg)]);
     } else if (cmd == "QS") {
       printf("RES %d\n", g_servo_angle[atoi(arg)]);
+    } else if (cmd == "QM") {
+      printf("RES %d\n", g_pin_mode[atoi(arg)]);
     }
     flushSerial();
     printf("DONE\n");
