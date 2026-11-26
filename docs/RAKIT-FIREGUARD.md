@@ -339,6 +339,9 @@ Uno GND ───────────────── pin G papan ekstensi
      ESP32 dan tidak dipakai di sini.
    - Kompilasi pertama untuk ESP32 bisa makan 5–10 menit karena seluruh core ESP32 ikut dibangun; berikutnya jauh
      lebih cepat. Supaya terlihat prosesnya, centang File → Preferences → *Show verbose output during: compile*.
+     Tunggu sampai muncul `Sketch uses ... bytes` dan **jangan klik Cancel** di tengah jalan: file yang baru
+     setengah ditulis bisa tertinggal di cache, lalu kompilasi berikutnya gagal dengan ratusan
+     `undefined reference`. Cara membereskannya ada di tabel *Kalau ada masalah* di bagian bawah.
    - Colok kabel USB ke **port micro-USB di papan ESP32 itu sendiri** (di antara tombol EN dan BOOT), bukan ke
      port USB papan ekstensi: port papan ekstensi biasanya hanya untuk daya. Pakai kabel data, bukan kabel yang
      cuma untuk mengecas.
@@ -448,6 +451,7 @@ Lalu di lantai:
 | Nilai gas tinggi terus / naik-turun | MQ-2 baru, belum dipanaskan lama; atur ulang `GAS_WARN` / `GAS_DANGER` |
 | Motor roda selalu kencang | jumper ENA/ENB di L298N belum dicabut |
 | Kamera sering putus / "Brownout" | daya ESP32-CAM kurang: kapasitor, kabel lebih pendek, buck lebih kuat |
+| Kompilasi ESP32 gagal: ratusan `undefined reference` (`String`, `millis`, `yield`), di akhir `final link failed` atau `unsupported binding` | cache kompilasi rusak, biasanya karena kompilasi sebelumnya dihentikan. Tutup Arduino IDE, buka `%LOCALAPPDATA%\arduino` lewat Win+R, hapus folder `sketches` dan `cores` (folder `Arduino15` jangan), lalu Verify lagi sampai selesai. Masih gagal dengan pesan yang sama: di Boards Manager pasang esp32 versi 3.x yang paling baru, hapus kedua folder tadi sekali lagi, lalu Verify |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, jauhkan dari roda, dan pastikan tidak ada kabel atau
 sambungan terbuka di bawah jalur selang air.
