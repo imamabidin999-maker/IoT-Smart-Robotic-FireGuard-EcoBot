@@ -55,7 +55,7 @@ Semua pesan punya field `t` (jenis).
 FireGuard:
 
 ```json
-{"t":"info","robot":"fireguard","fw":"1.2.0",
+{"t":"info","robot":"fireguard","fw":"1.3.0",
  "flame":["Kiri","Depan","Kanan"],"flamePins":["A0","A1","A2"],
  "gas":["MQ-2"],"gasPins":["A3"],
  "th":{"fw":700,"fd":400,"gw":350,"gd":550},

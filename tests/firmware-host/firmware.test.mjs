@@ -102,7 +102,7 @@ function variant(name, file, pairs) {
   return compile(name, p);
 }
 
-let binFG, binEB, binFGv, binEBr;
+let binFG, binEB, binFGv, binEBr, binFG4;
 before(() => {
   binFG = compile('fireguard', path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'));     // bawaan: 3 sensor api
   binEB = compile('ecobot', path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'));
@@ -110,6 +110,13 @@ before(() => {
     ['#define FLAME_COUNT     3 ', '#define FLAME_COUNT     2 '],
     ['#define GAS_COUNT       1 ', '#define GAS_COUNT       2 '],
     ['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1'],
+  ]);
+  // susunan robot uji tim: 2 sensor api, 2 MQ-2, relay aktif-LOW, baterai 4 sel seri lewat buck
+  binFG4 = variant('fireguard_4s', 'firmware/fireguard_uno/fireguard_uno.ino', [
+    ['#define FLAME_COUNT     3 ', '#define FLAME_COUNT     2 '],
+    ['#define GAS_COUNT       1 ', '#define GAS_COUNT       2 '],
+    ['#define PUMP_ACTIVE_HIGH 1', '#define PUMP_ACTIVE_HIGH 0'],
+    ['#define BAT_CELLS       2', '#define BAT_CELLS       4'],
   ]);
   binEBr = variant('ecobot_relay', 'firmware/ecobot_uno/ecobot_uno.ino', [
     ['#define BRUSH_USE_PWM   1', '#define BRUSH_USE_PWM   0'],
@@ -144,7 +151,7 @@ test('FireGuard: pesan info & telemetri adalah JSON valid dengan isi yang benar'
   await fgBoot(h);
   const info = h.infos[0];
   assert.equal(info.robot, 'fireguard');
-  assert.equal(info.fw, '1.2.0');
+  assert.equal(info.fw, '1.3.0');
   assert.deepEqual(info.flame, ['Kiri', 'Depan', 'Kanan']);
   assert.deepEqual(info.flamePins, ['A0', 'A1', 'A2']);
   assert.deepEqual(info.gas, ['MQ-2']);
@@ -267,6 +274,42 @@ test('FireGuard varian 2 sensor api + 2 MQ-2 + baterai: info menyesuaikan, A1 me
   await h.t(1500);
   assert.equal(h.tel().st, 'turn');
   assert.deepEqual(await fgMotors(h), { l: 150, r: -150 }, 'api di A1 (Kanan) -> berputar ke kanan');
+});
+
+test('FireGuard 4 sel seri + relay aktif-LOW: PWM ke L298N dibagi dua, pompa menyala saat pin LOW', async () => {
+  const h = mk(binFG4);
+  await fgBoot(h);
+  assert.equal(await h.q('QP', FG.PUMP), 1, 'relay aktif-LOW: pompa mati = pin HIGH sejak boot');
+
+  await h.send('MODE M');
+  await h.send('SPD 255');
+  await h.send('DRV 0 100'); await h.t(50);
+  assert.deepEqual(await fgMotors(h), { l: 127, r: 127 }, 'PWM 255 dibagi dua untuk 4 sel');
+  await h.send('DRV 0 100'); await h.t(250);
+  assert.equal(h.tel().sp, 255, 'telemetri tetap memakai skala 0..255');
+
+  await h.send('PUMP 1'); await h.t(50);
+  assert.equal(await h.q('QP', FG.PUMP), 0, 'pompa menyala = pin LOW');
+  await h.t(800);
+  assert.equal(await h.q('QP', FG.PUMP), 1, 'dead-man mematikan pompa lagi');
+
+  await h.send('MODE A'); await h.t(50);
+  h.analog(FG.FL[1], 550);              // api di sensor Kanan (A1)
+  await h.t(1500);
+  assert.equal(h.tel().st, 'turn');
+  assert.deepEqual(await fgMotors(h), { l: 75, r: -75 }, 'AUTO_TURN_PWM 150 dibagi dua');
+});
+
+test('FireGuard: pembagi 10k+10k ditolak saat BAT_CELLS 4, karena A5 bisa lebih dari 5 V', () => {
+  const sketch = 'firmware/fireguard_uno/fireguard_uno.ino';
+  const fourCells = [
+    ['#define BAT_CELLS       2', '#define BAT_CELLS       4'],
+    ['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1'],
+  ];
+  assert.throws(() => variant('fireguard_4s_divider_bad', sketch, fourCells));
+  assert.doesNotThrow(() => variant('fireguard_4s_divider_ok', sketch, [
+    ...fourCells, ['#define BAT_DIVIDER_X100 200', '#define BAT_DIVIDER_X100 400'],
+  ]));
 });
 
 test('FireGuard manual: DRV, batas kecepatan, dead-man, pompa, nozzle, STOP', async () => {
@@ -619,7 +662,7 @@ const notesSince = (h, n) => h.notes.slice(n);
 test('Serial Monitor: pesan pembuka menyebut versi & mode, baris lain tetap JSON', async () => {
   const fg = mk(binFG);
   await fgBoot(fg);
-  assert.ok(fg.notes.some((l) => /^# FireGuard 1\.2\.0 siap \(3 sensor api, 1 MQ-2\), mode OTOMATIS/.test(l)), fg.notes.join('\n'));
+  assert.ok(fg.notes.some((l) => /^# FireGuard 1\.3\.0 siap \(3 sensor api, 1 MQ-2\), mode OTOMATIS/.test(l)), fg.notes.join('\n'));
   assert.ok(fg.notes.some((l) => /Ketik MODE M dulu/.test(l)));
   assert.ok(fg.infos.length >= 1 && fg.tels.length >= 1, 'info & telemetri tetap terkirim');
   const eb = mk(binEB);

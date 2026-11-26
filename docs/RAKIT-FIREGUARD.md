@@ -105,8 +105,11 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 ```
 
 1. Pasang 2 sel 18650 di holder 2S (+ BMS). Ukur dengan multimeter: harus **7,4–8,4 V**. Holder 4 sel juga
-   boleh, asal susunannya 2S2P (hasil ukurnya tetap 7,4–8,4 V). Kalau terukur 14–16,8 V, holder itu 4 seri:
-   jangan dipakai untuk rangkaian ini.
+   boleh, asal susunannya 2S2P (hasil ukurnya tetap 7,4–8,4 V). Kalau terukur 14–16,8 V, holder itu 4 seri.
+   4 seri hanya boleh dipakai lewat buck: semua modul 5 V mengambil daya dari buck (Uno lewat pin 5V, papan
+   ekstensi lewat pin V, pompa lewat COM relay), VIN Uno dan jack DC papan ekstensi tidak dipakai, L298N tetap
+   dari baterai, dan `BAT_CELLS` di firmware diisi `4` supaya PWM motor dibagi dua. Jangan sambungkan 4 seri
+   langsung ke VIN Uno, jack DC papan ekstensi (maksimal 16 V), atau pompa.
 2. Pasang saklar di kabel + baterai.
 3. Sambungkan baterai ke **input buck converter saja dulu**. Nyalakan, ukur output buck, lalu putar trimpot
    sampai **5,0–5,1 V**. Matikan lagi. Langkah ini wajib: buck baru biasanya keluar tegangan sembarang dan bisa
@@ -152,6 +155,9 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    dengan urutan tetap, tanpa perlu mengetik apa pun, jadi masalah kabel dan daya bisa dipisahkan dari masalah
    perintah. Angkat robot, upload, nyalakan saklar baterai, lalu perhatikan roda. Buka Serial Monitor
    (baud 57600) kalau ingin melihat langkah yang sedang berjalan.
+   Sebelum upload, cek `BAT_CELLS` di bagian atas sketch: `2` untuk baterai 2 seri (7,4 V), `4` untuk 4 seri
+   lewat buck (14,8 V). Samakan dengan `BAT_CELLS` di `fireguard_uno.ino`. Kalau baterainya 4 seri tapi angkanya
+   masih `2`, motor TT kebagian hampir 15 V.
 
    | Yang terlihat | Artinya |
    |---|---|
@@ -170,7 +176,8 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 8. **Uji lewat Serial Monitor**, dengan roda **diangkat** dari lantai:
    - Arduino IDE → Serial Monitor, baud **57600**. Pilihan akhir baris apa saja boleh, huruf kecil juga boleh.
      Kalau yang muncul huruf acak, baud-nya belum 57600.
-   - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya `# FireGuard 1.1.0 siap, mode OTOMATIS`.
+   - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya
+     `# FireGuard 1.3.0 siap (3 sensor api, 1 MQ-2), mode OTOMATIS` (jumlahnya mengikuti `FLAME_COUNT` dan `GAS_COUNT`).
      Baris `#` adalah pesan untuk Anda. Setelah itu baris JSON muncul 4× per detik, itu juga normal.
    - **Ketik `MODE M` dulu.** FireGuard selalu menyala dalam mode Otomatis (diam menunggu api), dan di mode
      itu perintah gerak dari luar diabaikan (Uno akan menulis `# Diabaikan: robot sedang mode OTOMATIS`).
