@@ -352,8 +352,12 @@ Uno GND ───────────────── pin G papan ekstensi
      [CP210x Universal Windows Driver](https://www.silabs.com/documents/public/software/CP210x_Universal_Windows_Driver.zip)
      dan ekstrak ZIP-nya, lalu klik kanan perangkat tadi → *Update driver* → *Browse my computer for drivers* →
      pilih folder hasil ekstrak. Untuk chip CH340, driver-nya *CH341SER* dari situs WCH.
-   - Klik Upload. Kalau berhenti di `Connecting....` atau muncul *Wrong boot mode*, upload lagi sambil menahan
-     tombol **BOOT** sampai muncul `Writing at ...`. Masih gagal? Tools → Upload Speed → 115200.
+   - Klik Upload. Kalau berhenti di `Connecting....`, atau gagal dengan *Wrong boot mode* atau *Invalid head of
+     packet*, berarti ESP32 belum masuk mode upload. Banyak papan ESP32 murah gagal masuk mode ini sendiri, jadi
+     bantu dengan tombol: upload lagi, begitu muncul `Connecting....` tekan dan tahan **BOOT**, tekan **EN** sekali
+     sambil BOOT tetap ditahan, lalu lepas BOOT setelah muncul `Writing at ...`. Selesai upload, tekan EN sekali
+     supaya program barunya jalan. Masih gagal? Lepas kabel di pin TX0/RX0 ESP32 kalau ada, lalu Tools → Upload
+     Speed → 115200.
    - WiFi yang dipakai harus 2,4 GHz. ESP32 tidak bisa tersambung ke WiFi 5 GHz; hotspot HP biasanya bisa
      diatur ke 2,4 GHz.
 3. Buka Serial Monitor ESP32 (baud 115200). Catat alamat IP yang muncul, mis. `Tersambung. IP: 192.168.1.24`.
@@ -459,6 +463,7 @@ Lalu di lantai:
 | Kompilasi ESP32 gagal: ratusan `undefined reference` (`String`, `millis`, `yield`), di akhir `final link failed` atau `unsupported binding` | cache kompilasi rusak, biasanya karena kompilasi sebelumnya dihentikan. Tutup Arduino IDE, buka `%LOCALAPPDATA%\arduino` lewat Win+R, hapus folder `sketches` dan `cores` (folder `Arduino15` jangan), lalu Verify lagi sampai selesai. Masih gagal dengan pesan yang sama: di Boards Manager pasang esp32 versi 3.x yang paling baru, hapus kedua folder tadi sekali lagi, lalu Verify |
 | Pojok kanan bawah Arduino IDE menulis `on COMx [not connected]`, padahal lampu ESP32 menyala | laptop tidak melihat ESP32 di port itu. Buka Tools → Port sebelum dan sesudah ESP32 dicolok, lalu pilih port yang baru muncul. Tidak ada port baru: buka Device Manager lalu colok ESP32. Muncul di *Other devices* bertanda kuning = driver belum terpasang (CP2102 → driver CP210x dari Silicon Labs, CH340 → CH341SER dari WCH, CH9102 → CH343SER dari WCH). Daftar tidak berubah sama sekali = kabelnya cuma kabel cas atau port USB laptop bermasalah: ganti kabel dan port |
 | Upload ESP32 gagal: `Could not open COMx, the port is busy or doesn't exist`, sering disertai `semaphore timeout` | cabut kabel ESP32 lalu buka Tools → Port. Kalau COMx masih ada, port itu bukan ESP32 (sering port Bluetooth laptop): pilih port yang muncul saat ESP32 dicolok. Kalau COMx ikut hilang: tutup program lain yang memakai port, colok ke port USB lain tanpa hub, Upload Speed 115200, ganti kabel, atau pasang ulang driver |
+| Upload ESP32 gagal setelah `Connecting....`: `Failed to connect to ESP32`, `Invalid head of packet`, atau `Wrong boot mode` | ESP32 belum masuk mode upload. Upload lagi, begitu muncul `Connecting....` tahan BOOT, tekan EN sekali sambil BOOT tetap ditahan, lepas BOOT setelah muncul `Writing at ...`. Kabel dari Uno harus di pin 16 dan 17, bukan RX0/TX0; untuk upload pertama lebih aman dicabut dulu |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, jauhkan dari roda, dan pastikan tidak ada kabel atau
 sambungan terbuka di bawah jalur selang air.
