@@ -104,7 +104,9 @@ Baterai 2S (+) ── saklar ──┬── L298N +12V
 Baterai 2S (−) ────────────┴── GND semua modul (L298N, Uno, buck, ESP32, ESP32-CAM, relay, sensor)
 ```
 
-1. Pasang 2 sel 18650 di holder 2S (+ BMS). Ukur dengan multimeter: harus **7,4–8,4 V**.
+1. Pasang 2 sel 18650 di holder 2S (+ BMS). Ukur dengan multimeter: harus **7,4–8,4 V**. Holder 4 sel juga
+   boleh, asal susunannya 2S2P (hasil ukurnya tetap 7,4–8,4 V). Kalau terukur 14–16,8 V, holder itu 4 seri:
+   jangan dipakai untuk rangkaian ini.
 2. Pasang saklar di kabel + baterai.
 3. Sambungkan baterai ke **input buck converter saja dulu**. Nyalakan, ukur output buck, lalu putar trimpot
    sampai **5,0–5,1 V**. Matikan lagi. Langkah ini wajib: buck baru biasanya keluar tegangan sembarang dan bisa
@@ -233,7 +235,14 @@ Catatan:
    gas **tanpa dinyalakan** di dekat sensor: angkanya harus naik.
 4. Atur `GAS_WARN` sedikit di atas angka udara bersih (mis. udara bersih 180 → `GAS_WARN` sekitar 300) dan
    `GAS_DANGER` lebih tinggi lagi (mis. 500). Upload ulang.
-5. MQ-2 kedua (kalau ada): AO → **A4**, lalu ubah `GAS_COUNT` jadi `2`.
+5. MQ-2 kedua (kalau ada): VCC dan GND sama seperti yang pertama, AO → **A4**, lalu ubah `GAS_COUNT` jadi `2`.
+   Di dashboard, sensor di A3 tampil sebagai *MQ-2 #1* dan yang di A4 sebagai *MQ-2 #2*. Supaya gampang
+   diingat, pasang MQ-2 kiri di A3 dan yang kanan di A4. Dua MQ-2 memakan ±300 mA, jadi ambil 5 V-nya dari
+   buck, jangan dari pin V papan ekstensi yang juga menghidupi ESP32 dan sensor api.
+6. **Letak:** di dek atas bagian depan atau samping, menghadap keluar dan tidak tertutup, supaya asap dari arah
+   api cepat sampai. Jauhkan dari jalur semprotan dan tetesan nozzle: MQ-2 yang basah angkanya kacau dan bisa
+   rusak. Ujung nozzle sebaiknya lebih menjorok ke depan daripada MQ-2, dan MQ-2 jangan menghalangi pandangan
+   sensor api.
 
 Gas hanya memunculkan peringatan di dashboard. Robot tidak bergerak karena gas, yang menggerakkan robot di
 mode otomatis hanya sensor api.
