@@ -13,6 +13,16 @@ Baterai 18650 itu 3,7 V per sel (4,2 V saat penuh). **Satu sel saja tidak cukup*
 sekitar 2 V, jadi motor hanya kebagian ±1,7 V, dan Uno butuh minimal ±7 V di pin VIN.
 Pakai **2 sel seri (7,4 V, penuh 8,4 V)** dengan holder dan proteksi (BMS 2S).
 
+Punya 4 sel? Susun **2S2P**: dua pasang sel seri yang kemudian diparalel. Tegangannya tetap 7,4 V, hanya
+kapasitasnya dua kali lipat. **Jangan 4 seri** (14,8 V, penuh 16,8 V): terlalu tinggi untuk motor TT, pin VIN
+Uno, dan jack DC papan ekstensi ESP32 yang umumnya maksimal 16 V. Sel yang diparalel harus sejenis dan isinya
+sama penuh sebelum disatukan.
+
+Pengecualian khusus FireGuard: 4 seri boleh dipakai kalau **semua** modul 5 V (termasuk Uno lewat pin 5V dan
+pompa) mengambil daya dari buck, VIN Uno dan jack DC papan ekstensi dibiarkan kosong, dan `BAT_CELLS` di
+`fireguard_uno.ino` serta `tes_motor.ino` diisi `4`. Firmware lalu membagi dua PWM motor, jadi motor TT tetap
+kebagian tegangan yang sama seperti dengan 2 sel. Firmware EcoBot belum punya pengaturan ini.
+
 ```
 Baterai 2S (7,4 V) ──► saklar ──┬─► L298N terminal +12V  (motor roda)
                                 ├─► Uno pin VIN          (Uno punya regulator sendiri)
@@ -286,5 +296,8 @@ Hanya butuh daya: 5 V stabil dan GND (bagian 1). Tidak ada kabel ke Uno.
 
 Dua resistor sama membagi dua: 8,4 V menjadi 4,2 V di A5 (aman untuk Uno 5 V). Lalu di sketch ubah
 `HAS_BATTERY_SENSE` jadi `1`. Kalau resistornya tidak sama, isi `BAT_DIVIDER_X100` dengan
-(R1+R2)/R2 × 100. Di dashboard, pilih jumlah sel di Pengaturan. Persennya perkiraan kasar dari
+(R1+R2)/R2 × 100. Untuk 4 seri (penuh 16,8 V) pakai 30 kΩ (mis. 3 × 10 kΩ seri) + 10 kΩ dan
+`BAT_DIVIDER_X100 400`; FireGuard menolak dikompilasi kalau pembaginya bisa membuat A5 lebih dari 5 V.
+Di dashboard, pilih jumlah sel **seri** di Pengaturan (2S2P tetap dipilih 2 sel seri).
+Persennya perkiraan kasar dari
 tegangan; saat motor menyala tegangan turun sesaat, jadi angkanya bisa naik-turun.

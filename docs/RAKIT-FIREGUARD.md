@@ -28,12 +28,12 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 |---|---|
 | Holder baterai 2S (2 sel seri) + BMS 2S | baterai jadi 7,4 V, dan aman dari kelebihan/kekurangan isi |
 | Saklar on/off | memutus baterai (sering sudah ikut di kit chassis) |
-| Buck converter 5 V, minimal 3 A (LM2596, atau XL4015 yang lebih kuat) | daya 5 V untuk ESP32, ESP32-CAM, servo, MQ-2, relay, dan pompa |
+| Buck converter 5 V, minimal 3 A (LM2596, XL4015 yang lebih kuat, atau buck mini MP1584 kalau tempatnya sempit) | daya 5 V untuk ESP32, ESP32-CAM, servo, MQ-2, relay, dan pompa. Tidak harus di atas dek: boleh ditempel double tape di bawah dek atas atau di sisi holder baterai |
 | Pompa air celup mini DC 3–6 V | penyemprot air |
 | Selang silikon ±50 cm (diameter mengikuti pipa pompa, biasanya 5–8 mm) | dari pompa ke nozzle |
 | Botol plastik 300–600 ml | tangki air |
 | Modul relay 1 kanal 5 V | saklar pompa |
-| Dioda 1N4007 | pelindung kontak relay dari lonjakan tegangan pompa |
+| Dioda 1N4007 (3 buah) | 1 untuk pelindung kontak relay dari lonjakan tegangan pompa, 2 untuk menurunkan tegangan pompa kalau tanpa buck |
 | Resistor 1 kΩ dan 2 kΩ | menurunkan tegangan sinyal Uno → ESP32 |
 | Kapasitor elektrolit 470 µF 16 V | penstabil daya ESP32-CAM |
 | Kabel jumper female–female dan female–male | pin sensor dan pin papan ekstensi sama-sama jantan, jadi butuh ujung female |
@@ -104,7 +104,12 @@ Baterai 2S (+) ── saklar ──┬── L298N +12V
 Baterai 2S (−) ────────────┴── GND semua modul (L298N, Uno, buck, ESP32, ESP32-CAM, relay, sensor)
 ```
 
-1. Pasang 2 sel 18650 di holder 2S (+ BMS). Ukur dengan multimeter: harus **7,4–8,4 V**.
+1. Pasang 2 sel 18650 di holder 2S (+ BMS). Ukur dengan multimeter: harus **7,4–8,4 V**. Holder 4 sel juga
+   boleh, asal susunannya 2S2P (hasil ukurnya tetap 7,4–8,4 V). Kalau terukur 14–16,8 V, holder itu 4 seri.
+   4 seri hanya boleh dipakai lewat buck: semua modul 5 V mengambil daya dari buck (Uno lewat pin 5V, papan
+   ekstensi lewat pin V, pompa lewat COM relay), VIN Uno dan jack DC papan ekstensi tidak dipakai, L298N tetap
+   dari baterai, dan `BAT_CELLS` di firmware diisi `4` supaya PWM motor dibagi dua. Jangan sambungkan 4 seri
+   langsung ke VIN Uno, jack DC papan ekstensi (maksimal 16 V), atau pompa.
 2. Pasang saklar di kabel + baterai.
 3. Sambungkan baterai ke **input buck converter saja dulu**. Nyalakan, ukur output buck, lalu putar trimpot
    sampai **5,0–5,1 V**. Matikan lagi. Langkah ini wajib: buck baru biasanya keluar tegangan sembarang dan bisa
@@ -150,6 +155,9 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    dengan urutan tetap, tanpa perlu mengetik apa pun, jadi masalah kabel dan daya bisa dipisahkan dari masalah
    perintah. Angkat robot, upload, nyalakan saklar baterai, lalu perhatikan roda. Buka Serial Monitor
    (baud 57600) kalau ingin melihat langkah yang sedang berjalan.
+   Sebelum upload, cek `BAT_CELLS` di bagian atas sketch: `2` untuk baterai 2 seri (7,4 V), `4` untuk 4 seri
+   lewat buck (14,8 V). Samakan dengan `BAT_CELLS` di `fireguard_uno.ino`. Kalau baterainya 4 seri tapi angkanya
+   masih `2`, motor TT kebagian hampir 15 V.
 
    | Yang terlihat | Artinya |
    |---|---|
@@ -168,7 +176,8 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 8. **Uji lewat Serial Monitor**, dengan roda **diangkat** dari lantai:
    - Arduino IDE → Serial Monitor, baud **57600**. Pilihan akhir baris apa saja boleh, huruf kecil juga boleh.
      Kalau yang muncul huruf acak, baud-nya belum 57600.
-   - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya `# FireGuard 1.1.0 siap, mode OTOMATIS`.
+   - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya
+     `# FireGuard 1.3.0 siap (3 sensor api, 1 MQ-2), mode OTOMATIS` (jumlahnya mengikuti `FLAME_COUNT` dan `GAS_COUNT`).
      Baris `#` adalah pesan untuk Anda. Setelah itu baris JSON muncul 4× per detik, itu juga normal.
    - **Ketik `MODE M` dulu.** FireGuard selalu menyala dalam mode Otomatis (diam menunggu api), dan di mode
      itu perintah gerak dari luar diabaikan (Uno akan menulis `# Diabaikan: robot sedang mode OTOMATIS`).
@@ -233,7 +242,16 @@ Catatan:
    gas **tanpa dinyalakan** di dekat sensor: angkanya harus naik.
 4. Atur `GAS_WARN` sedikit di atas angka udara bersih (mis. udara bersih 180 → `GAS_WARN` sekitar 300) dan
    `GAS_DANGER` lebih tinggi lagi (mis. 500). Upload ulang.
-5. MQ-2 kedua (kalau ada): AO → **A4**, lalu ubah `GAS_COUNT` jadi `2`.
+5. MQ-2 kedua (kalau ada): VCC dan GND sama seperti yang pertama, AO → **A4**, lalu ubah `GAS_COUNT` jadi `2`.
+   Di dashboard, sensor di A3 tampil sebagai *MQ-2 #1* dan yang di A4 sebagai *MQ-2 #2*. Supaya gampang
+   diingat, pasang MQ-2 kiri di A3 dan yang kanan di A4. Dua MQ-2 memakan ±300 mA, jadi ambil 5 V-nya dari
+   buck, jangan dari pin V papan ekstensi yang juga menghidupi ESP32 dan sensor api. Buck belum terpasang?
+   Sementara, VCC MQ-2 kiri boleh dari terminal **5V L298N** (jumper 5V-EN tetap terpasang) dan VCC MQ-2 kanan
+   dari pin **5V Uno**. Masing-masing cuma kebagian ±150 mA. Dua sumber 5V itu jangan disambung satu sama lain.
+6. **Letak:** di dek atas bagian depan atau samping, menghadap keluar dan tidak tertutup, supaya asap dari arah
+   api cepat sampai. Jauhkan dari jalur semprotan dan tetesan nozzle: MQ-2 yang basah angkanya kacau dan bisa
+   rusak. Ujung nozzle sebaiknya lebih menjorok ke depan daripada MQ-2, dan MQ-2 jangan menghalangi pandangan
+   sensor api.
 
 Gas hanya memunculkan peringatan di dashboard. Robot tidak bergerak karena gas, yang menggerakkan robot di
 mode otomatis hanya sensor api.
@@ -263,10 +281,15 @@ Kerjakan dua tahap: relay dulu tanpa pompa, baru pompanya.
 
 **Tahap A, relay saja**
 
-1. Modul relay: **VCC ← 5 V buck**, **GND ← GND bersama**, **IN ← D4**.
+1. Modul relay: **VCC ← 5 V buck**, **GND ← GND bersama**, **IN ← D4**. Belum ada buck? VCC relay boleh dari
+   pin V papan ekstensi, karena koil relay cuma memakan ±70 mA.
 2. Banyak modul relay 1 kanal (terutama yang memakai optocoupler) **aktif-LOW**: relay menyala kalau IN diberi
    LOW. Untuk modul seperti itu, ubah `PUMP_ACTIVE_HIGH` jadi `0` di sketch, lalu upload. Kalau modul Anda punya
-   jumper pilihan **H/L**, pasang di **L**. Belum yakin modulnya jenis apa? Langkah 3 akan menunjukkannya.
+   jumper pilihan **H/L**, pasang di **L**. Modul biru tanpa optocoupler (relay SONGLE SRD-05VDC-SL-C, pin
+   IN/GND/VCC) dijual dalam versi LOW dan HIGH yang bentuknya hampir sama. Cara cepat mengeceknya: VCC ke 5V
+   dan GND ke GND Uno (Uno cukup dari USB laptop), IN belum ke mana-mana, lalu tempelkan ujung kabel IN ke pin
+   GND Uno yang lain. Kalau relay berbunyi klik, modulnya aktif-LOW (`0`). Kalau diam, modulnya aktif-HIGH
+   (`1`, nilai bawaan). Langkah 3 akan memastikannya.
 3. Nyalakan robot. **LED relay harus mati dan tidak ada bunyi klik.** Kalau relay langsung menyala, berarti
    pengaturan tadi terbalik: ganti `PUMP_ACTIVE_HIGH` ke nilai sebaliknya dan upload ulang.
 4. Ketik `MODE M`, lalu `PUMP 1`. Relay harus berbunyi klik (menyala), lalu ±0,6 detik kemudian klik lagi
@@ -290,13 +313,20 @@ Dioda 1N4007 melintang di kabel pompa: sisi bergaris (katoda) ke (+), sisi lain 
 ```
 
 1. Sambungkan seperti gambar. Pompa ada di **NO** (normally open), bukan NC, supaya pompa mati saat relay
-   tidak aktif.
+   tidak aktif. Di modul 1 kanal, terminal sekrup **tengah adalah COM**. Tulisan NO/NC biasanya ada di PCB
+   dekat terminal, kadang di sisi bawah papan. Kalau tulisannya huruf Cina: 常开 = NO, 公共端 = COM, 常闭 = NC. Kalau tidak ada, cek dengan multimeter mode bunyi saat relay
+   mati: COM tersambung ke NC, bukan ke NO. Dioda kecil di modul relay hanya melindungi koil relay, jadi dioda
+   1N4007 di kaki pompa tetap perlu.
 2. **Pompa harus terendam air sebelum dinyalakan.** Pompa yang berputar kering cepat rusak.
 3. Uji pertama di luar robot atau di atas ember: ujung selang diarahkan ke ember, lalu ketik `PUMP 1` beberapa
    kali berturut-turut. Air harus menyembur.
 4. Cek semua sambungan selang tidak bocor, terutama yang dekat dek elektronik.
 5. Kalau pompa Anda versi 6–12 V, ambil daya **COM dari baterai (+)**, bukan dari 5 V buck.
-6. Kalau ESP32 atau kamera ikut restart setiap pompa menyala, buck-nya kurang kuat. Pakai buck yang lebih
+6. **Tanpa buck:** pompa 3–6 V juga boleh mengambil **COM dari baterai (+)**, asal di kabel dari NO ke pompa (+)
+   dipasang **2 dioda 1N4007 seri** dengan sisi bergaris menghadap ke pompa. Tiap dioda menurunkan ±0,9 V, jadi
+   pompa kebagian ±5,5–6,5 V, bukan 7,4–8,4 V. Dioda pelindung yang melintang di kabel pompa tetap dipasang.
+   Semburan terlalu lemah? Pakai 1 dioda saja, tapi pompanya jadi lebih cepat panas.
+7. Kalau ESP32 atau kamera ikut restart setiap pompa menyala, buck-nya kurang kuat. Pakai buck yang lebih
    besar, atau buck kedua khusus untuk pompa.
 
 ---
@@ -381,9 +411,13 @@ Uno GND ───────────────── pin G papan ekstensi
 
 ## 10. Sambungkan ke dashboard
 
-1. Buka `fireguard/index.html` di laptop/HP yang tersambung ke WiFi yang sama.
-2. Klik ikon roda gigi → mode **Langsung** → alamat robot `fireguard.local` atau IP ESP32 → alamat kamera
-   `fireguard-cam.local` atau IP ESP32-CAM → **Simpan & Sambungkan**. Di HP Android pakai IP.
+1. Buka `fireguard/index.html` di laptop/HP yang tersambung ke WiFi yang sama. Untuk lomba atau demo, pakai
+   hotspot HP sendiri: WiFi tempat acara belum tentu mengizinkan sesama perangkat saling terhubung, dan IP
+   robot bisa dilihat langsung di daftar perangkat hotspot (namanya `fireguard`).
+2. Klik ikon roda gigi → mode **Langsung** → alamat robot: IP ESP32 dari Serial Monitor (mis. `192.168.1.24`)
+   → alamat kamera: IP ESP32-CAM, atau kosongkan kalau kamera belum dipasang → **Simpan & Sambungkan**.
+   Alamat `fireguard.local` lebih praktis karena tidak berubah, tapi sering tidak jalan di HP Android, di
+   sebagian laptop Windows, dan di WiFi kampus. Kalau statusnya terus "Menyambung...", kembali pakai IP.
 3. Status di pojok kanan atas harus **Terhubung**, kartu **Deteksi Api** menampilkan angka, gas menampilkan
    "Pemanasan" sebentar, dan kamera tampil.
    - "Robot belum merespons": ESP32 tersambung tapi Uno diam. Cek kabel TX/RX dan pembagi tegangan.
@@ -449,11 +483,15 @@ Lalu di lantai:
 | Robot bergerak sendiri padahal tidak ada api | cahaya lampu/matahari terbaca sebagai api: jauhi jendela, atau **turunkan** `FLAME_WARN` |
 | Api lurus di depan, tapi robot malah berbelok ke kanan | `FLAME_COUNT` masih `2`, sehingga sensor Depan di A1 dibaca sebagai Kanan. Ubah jadi `3` lalu upload ulang |
 | Ketiga angka sensor api 0, robot mengira ada api besar | papan ekstensi belum menyala (sensor mendapat daya dari pin V-nya), atau kabel VCC sensor lepas |
+| Uno di meja tanpa sensor, tapi status `spray`/`rest` dan relay klik sendiri | pin A0–A4 yang kosong terbaca acak sekitar 200–300, mirip api dekat, dan FireGuard menyala dalam mode Otomatis. Ketik `MODE M` dulu selama menguji tanpa sensor |
+| Angka sensor api dan gas mirip semua dan naik-turun bersamaan | sensor belum dapat daya (papan ekstensi belum menyala, LED power di modul sensor padam) atau GND Uno belum disatukan dengan pin G papan ekstensi |
 | Angka sensor api tidak pernah di atas ±700 walau tidak ada api | pin V papan ekstensi masih 3,3 V: pindahkan jumpernya ke 5V |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
 | Robot menabrak lilin | `FLAME_DANGER` terlalu kecil, naikkan |
 | Relay langsung menyala begitu robot dinyalakan | `PUMP_ACTIVE_HIGH` terbalik |
 | Relay berbunyi klik tapi pompa diam | pompa tersambung ke NC, bukan NO; atau COM belum diberi 5 V |
+| Relay diam dan LED-nya mati saat `PUMP 1` | VCC relay belum dapat 5 V (pin IN hanya sinyal, daya koil dari VCC), GND relay belum ke GND bersama, atau robot masih mode Otomatis: cek `"m":"M"` di telemetri |
+| Muncul `# Perintah tidak dikenal: GET..` | ada titik ikut terketik. Ketik perintahnya persis, mis. `GET` atau `MODE M`, tanpa titik atau titik dua |
 | Pompa cuma menyala sebentar saat diuji dari Serial Monitor | normal, pengaman 0,6 detik. Ketik `PUMP 1` berulang, atau tahan tombol di dashboard |
 | Uno/ESP32/kamera restart saat pompa menyala | dioda di pompa, buck kurang kuat, kabel daya terlalu kecil/panjang |
 | Gas terus "Pemanasan" lebih dari 20 detik | Uno restart berulang (cek daya), karena hitungan pemanasan mulai lagi tiap Uno menyala |
@@ -463,7 +501,8 @@ Lalu di lantai:
 | Kompilasi ESP32 gagal: ratusan `undefined reference` (`String`, `millis`, `yield`), di akhir `final link failed` atau `unsupported binding` | cache kompilasi rusak, biasanya karena kompilasi sebelumnya dihentikan. Tutup Arduino IDE, buka `%LOCALAPPDATA%\arduino` lewat Win+R, hapus folder `sketches` dan `cores` (folder `Arduino15` jangan), lalu Verify lagi sampai selesai. Masih gagal dengan pesan yang sama: di Boards Manager pasang esp32 versi 3.x yang paling baru, hapus kedua folder tadi sekali lagi, lalu Verify |
 | Pojok kanan bawah Arduino IDE menulis `on COMx [not connected]`, padahal lampu ESP32 menyala | laptop tidak melihat ESP32 di port itu. Buka Tools → Port sebelum dan sesudah ESP32 dicolok, lalu pilih port yang baru muncul. Tidak ada port baru: buka Device Manager lalu colok ESP32. Muncul di *Other devices* bertanda kuning = driver belum terpasang (CP2102 → driver CP210x dari Silicon Labs, CH340 → CH341SER dari WCH, CH9102 → CH343SER dari WCH). Daftar tidak berubah sama sekali = kabelnya cuma kabel cas atau port USB laptop bermasalah: ganti kabel dan port |
 | Upload ESP32 gagal: `Could not open COMx, the port is busy or doesn't exist`, sering disertai `semaphore timeout` | cabut kabel ESP32 lalu buka Tools → Port. Kalau COMx masih ada, port itu bukan ESP32 (sering port Bluetooth laptop): pilih port yang muncul saat ESP32 dicolok. Kalau COMx ikut hilang: tutup program lain yang memakai port, colok ke port USB lain tanpa hub, Upload Speed 115200, ganti kabel, atau pasang ulang driver |
-| Upload ESP32 gagal setelah `Connecting....`: `Failed to connect to ESP32`, `Invalid head of packet`, atau `Wrong boot mode` | ESP32 belum masuk mode upload. Upload lagi, begitu muncul `Connecting....` tahan BOOT, tekan EN sekali sambil BOOT tetap ditahan, lepas BOOT setelah muncul `Writing at ...`. Kabel dari Uno harus di pin 16 dan 17, bukan RX0/TX0; untuk upload pertama lebih aman dicabut dulu |
+| Upload ESP32 gagal setelah `Connecting....`: `Failed to connect to ESP32`, `Invalid head of packet`, atau `Wrong boot mode` | ESP32 belum masuk mode upload. Upload lagi, begitu muncul `Connecting....` tahan BOOT, tekan EN sekali sambil BOOT tetap ditahan, lepas BOOT setelah muncul `Writing at ...`. Kabel dari Uno harus di pin 16 dan 17, bukan RX0/TX0; untuk upload pertama lebih aman dicabut dulu. Masih gagal, dan Serial Monitor (115200) penuh kotak-kotak yang tetap muncul walau EN ditahan: papan ESP32-nya kemungkinan rusak, coba papan lain |
+| Dashboard terus "Menyambung..." dengan alamat `fireguard.local`, padahal dengan IP bisa | laptop/HP atau jaringannya tidak mendukung alamat `.local` (sering di Android, sebagian laptop Windows, dan WiFi kampus). Pakai IP dari Serial Monitor atau dari daftar perangkat di hotspot HP |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, jauhkan dari roda, dan pastikan tidak ada kabel atau
 sambungan terbuka di bawah jalur selang air.

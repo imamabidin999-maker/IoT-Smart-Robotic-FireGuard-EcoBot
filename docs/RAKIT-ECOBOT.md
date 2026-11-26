@@ -297,9 +297,13 @@ ESP32 GND ─────────────── GND bersama
 
 ## 9. Sambungkan ke dashboard
 
-1. Buka `ecobot/index.html` di laptop/HP yang tersambung ke WiFi yang sama.
-2. Klik ikon roda gigi → mode **Langsung** → alamat robot `ecobot.local` atau IP ESP32 → alamat kamera
-   `ecobot-cam.local` atau IP ESP32-CAM → **Simpan & Sambungkan**. Di HP Android pakai IP.
+1. Buka `ecobot/index.html` di laptop/HP yang tersambung ke WiFi yang sama. Untuk lomba atau demo, pakai
+   hotspot HP sendiri: WiFi tempat acara belum tentu mengizinkan sesama perangkat saling terhubung, dan IP
+   robot bisa dilihat langsung di daftar perangkat hotspot (namanya `ecobot`).
+2. Klik ikon roda gigi → mode **Langsung** → alamat robot: IP ESP32 dari Serial Monitor (mis. `192.168.1.25`)
+   → alamat kamera: IP ESP32-CAM, atau kosongkan kalau kamera belum dipasang → **Simpan & Sambungkan**.
+   Alamat `ecobot.local` lebih praktis karena tidak berubah, tapi sering tidak jalan di HP Android, di
+   sebagian laptop Windows, dan di WiFi kampus. Kalau statusnya terus "Menyambung...", kembali pakai IP.
 3. Status di pojok kanan atas harus **Terhubung**, angka sensor bergerak, dan kamera tampil.
    - "Robot belum merespons": ESP32 tersambung tapi Uno diam. Cek kabel TX/RX dan pembagi tegangan.
 
@@ -343,5 +347,6 @@ Lalu di lantai:
 | Robot menghindari sampah kecil | sensor Depan terlalu rendah, naikkan posisinya |
 | Kapasitas wadah tidak masuk akal | ukur ulang `BIN_EMPTY_CM` saat wadah kosong |
 | Kamera sering putus / "Brownout" | daya ESP32-CAM kurang: kapasitor, kabel lebih pendek, buck ≥ 2 A |
+| Dashboard terus "Menyambung..." dengan alamat `ecobot.local`, padahal dengan IP bisa | laptop/HP atau jaringannya tidak mendukung alamat `.local` (sering di Android, sebagian laptop Windows, dan WiFi kampus). Pakai IP dari Serial Monitor atau dari daftar perangkat di hotspot HP |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, dan jauhkan kabel dari roda serta sikat.

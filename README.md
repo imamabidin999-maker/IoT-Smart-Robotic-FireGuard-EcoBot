@@ -133,7 +133,7 @@ cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau 
 | "Robot belum merespons" | kabel TX/RX Uno ↔ ESP tertukar atau longgar, baud tidak sama (57600), atau kabel masih terpasang saat upload |
 | Uno restart sendiri saat servo bergerak | servo/ESP masih memakai daya dari pin 5 V Uno. Pindahkan ke buck converter |
 | ESP32-CAM "Brownout detector" atau video putus-putus | daya kurang. Tambah kapasitor dan pakai 5 V ≥ 1 A |
-| `fireguard.local` tidak ketemu di HP | mDNS sering tidak jalan di Android. Pakai alamat IP |
+| Dashboard terus "Menyambung..." dengan `fireguard.local` | alamat `.local` sering tidak jalan di Android, sebagian laptop Windows, dan WiFi kampus. Pakai alamat IP dari Serial Monitor |
 | Dashboard https tidak bisa tersambung | browser memblokir `ws://` dari halaman https. Buka lewat `file://` atau `http://` |
 | Roda tidak bergerak sama sekali | upload `firmware/tes_motor/` lalu cocokkan hasilnya dengan tabel di panduan rakit (langkah 3). Yang paling sering: GND Uno belum disatukan dengan GND L298N, jumper ENA/ENB dicabut tapi pin ENA/ENB belum disambung, atau baterai cuma satu sel |
 | Perintah di Serial Monitor tidak berpengaruh | baud harus 57600. FireGuard menyala dalam mode Otomatis: ketik `MODE M` dulu. Baca juga baris `#` yang dibalas Uno |

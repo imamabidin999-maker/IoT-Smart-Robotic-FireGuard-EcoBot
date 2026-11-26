@@ -28,11 +28,22 @@
 #define RUN_MS          2000   // lama tiap langkah (ms)
 #define REST_MS         1000   // jeda antar langkah (ms)
 
+// Jumlah sel 18650 yang disusun SERI: 2 (7,4 V) atau 4 (14,8 V). Samakan dengan BAT_CELLS di
+// firmware robot. Dengan 4 sel, PWM yang dikirim ke L298N dibagi dua supaya motor TT tidak
+// kelebihan tegangan; angka PWM yang tercetak tetap memakai skala 2 sel, sama dengan MIN_PWM di firmware.
+#define BAT_CELLS       2
+#if BAT_CELLS < 2 || BAT_CELLS > 4
+  #error "BAT_CELLS harus 2, 3, atau 4"
+#endif
+
 // v: -255..255, negatif = mundur, 0 = berhenti
 static void driveSide(int v, uint8_t inA, uint8_t inB, uint8_t en) {
+  long a = v < 0 ? -(long)v : v;
+  a = a * 2 / BAT_CELLS;
+  if (a > 255) a = 255;
   digitalWrite(inA, v > 0 ? HIGH : LOW);
   digitalWrite(inB, v < 0 ? HIGH : LOW);
-  analogWrite(en, v < 0 ? -v : v);
+  analogWrite(en, (int)a);
 }
 
 static void drive(int left, int right) {

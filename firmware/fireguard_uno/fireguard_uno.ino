@@ -20,7 +20,7 @@
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
-#define FW_VERSION      "1.2.0"
+#define FW_VERSION      "1.3.0"
 #define SERIAL_BAUD     57600
 
 // ---- jumlah sensor yang terpasang ----
@@ -48,9 +48,16 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
 #define PIN_PUMP        4      // ke IN modul relay / basis TIP120 lewat 1 kΩ / SIG modul MOSFET (BUKAN langsung ke pompa)
 #define PUMP_ACTIVE_HIGH 1     // modul relay biasanya aktif LOW -> ganti jadi 0
 
-// ---- baterai (opsional) ----
-// Pasang pembagi tegangan (2 resistor sama, mis. 10k + 10k) dari + baterai ke A5,
-// lalu ubah HAS_BATTERY_SENSE jadi 1. Kalau tidak dipasang, biarkan 0.
+// ---- baterai ----
+// Jumlah sel 18650 yang disusun SERI: 2 (7,4 V) atau 4 (14,8 V, wajib lewat buck untuk modul 5 V).
+// Dengan 4 sel, PWM motor otomatis dibagi dua: roda tetap secepat rancangan 2 sel dan motor TT
+// tidak kelebihan tegangan.
+#define BAT_CELLS       2
+
+// Sensor tegangan (opsional). Pasang pembagi tegangan dari + baterai ke A5, lalu ubah
+// HAS_BATTERY_SENSE jadi 1. Kalau tidak dipasang, biarkan 0.
+//   2 sel: 10k + 10k                      -> BAT_DIVIDER_X100 200
+//   4 sel: 30k (mis. 3 x 10k seri) + 10k  -> BAT_DIVIDER_X100 400
 #define HAS_BATTERY_SENSE 0
 #define PIN_BATTERY     A5
 #define BAT_DIVIDER_X100 200   // (R1+R2)/R2 x 100. Dua resistor sama = 200
@@ -108,6 +115,14 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
   #define GAS_PINS_JSON   "[\"A3\",\"A4\"]"
 #else
   #error "GAS_COUNT harus 1 atau 2"
+#endif
+
+#if BAT_CELLS < 2 || BAT_CELLS > 4
+  #error "BAT_CELLS harus 2, 3, atau 4"
+#endif
+// sel penuh 4,2 V; setelah pembagi, A5 tidak boleh lebih dari 5 V
+#if HAS_BATTERY_SENSE && (BAT_CELLS * 420L * 100L / BAT_DIVIDER_X100 > 500L)
+  #error "Pembagi tegangan baterai terlalu kecil untuk BAT_CELLS ini: A5 bisa lebih dari 5 V. Lihat komentar BAT_DIVIDER_X100"
 #endif
 
 // ==================================================================
@@ -206,9 +221,14 @@ static void printHelp() {
 // ==================================================================
 //  Motor
 // ==================================================================
+// v: PWM rancangan 2 sel (-255..255). Yang benar-benar dikirim ke L298N disesuaikan dengan BAT_CELLS.
 static void driveSide(int v, uint8_t inA, uint8_t inB, uint8_t en) {
-  if (v > 0)      { digitalWrite(inA, HIGH); digitalWrite(inB, LOW);  analogWrite(en, v > 255 ? 255 : v); }
-  else if (v < 0) { digitalWrite(inA, LOW);  digitalWrite(inB, HIGH); analogWrite(en, -v > 255 ? 255 : -v); }
+  long a = v < 0 ? -(long)v : v;
+  if (a > 255) a = 255;
+  a = a * 2 / BAT_CELLS;
+  if (a > 255) a = 255;
+  if (v > 0)      { digitalWrite(inA, HIGH); digitalWrite(inB, LOW);  analogWrite(en, (int)a); }
+  else if (v < 0) { digitalWrite(inA, LOW);  digitalWrite(inB, HIGH); analogWrite(en, (int)a); }
   else            { digitalWrite(inA, LOW);  digitalWrite(inB, LOW);  analogWrite(en, 0); }
 }
 

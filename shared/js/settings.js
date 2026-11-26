@@ -79,8 +79,9 @@
         <option value="1">1 sel (3,7 V)</option>
         <option value="2">2 sel seri (7,4 V)</option>
         <option value="3">3 sel seri (11,1 V)</option>
+        <option value="4">4 sel seri (14,8 V, pakai buck)</option>
       </select>
-      <div class="hint">Dipakai untuk mengubah tegangan baterai jadi persen. Nilainya muncul kalau sensor tegangan sudah dipasang dan diaktifkan di firmware.</div>
+      <div class="hint">Hitung sel yang disusun seri, bukan jumlah baterainya: 4 sel yang disusun 2S2P tetap dipilih 2 sel seri. Samakan dengan <span class="mono">BAT_CELLS</span> di firmware. Dipakai untuk mengubah tegangan baterai jadi persen; nilainya muncul kalau sensor tegangan sudah dipasang dan diaktifkan di firmware.</div>
     </div>
 
     <label class="check"><input type="checkbox" id="fSound"><span>Bunyikan alarm saat ada bahaya (butuh sekali klik di halaman dulu supaya browser mengizinkan suara)</span></label>
