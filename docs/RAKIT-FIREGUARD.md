@@ -330,7 +330,20 @@ Uno GND ───────────────── pin G papan ekstensi
 
 1. Buka `firmware/esp_bridge/esp_bridge.ino`. `ROBOT_NAME` sudah `"fireguard"`, jadi cukup ubah
    `WIFI_SSID` dan `WIFI_PASS` sesuai WiFi/hotspot yang akan dipakai.
-2. Pasang library **WebSockets** (oleh Markus Sattler) lewat Library Manager, pilih board ESP32, lalu upload lewat USB ESP32.
+2. **Upload ke ESP32** (Arduino IDE 2):
+   - Sekali saja: File → Preferences → *Additional boards manager URLs* diisi
+     `https://espressif.github.io/arduino-esp32/package_esp32_index.json`. Lalu di Boards Manager pasang
+     **esp32 by Espressif Systems**, dan di Library Manager pasang **WebSockets** oleh **Markus Sattler** (bukan
+     library lain yang namanya mirip).
+   - Colok kabel USB ke **port micro-USB di papan ESP32 itu sendiri** (di antara tombol EN dan BOOT), bukan ke
+     port USB papan ekstensi: port papan ekstensi biasanya hanya untuk daya. Pakai kabel data, bukan kabel yang
+     cuma untuk mengecas.
+   - Pilih board **ESP32 Dev Module** dan port COM yang muncul saat ESP32 dicolok. Kalau tidak ada port baru,
+     pasang driver chip USB-nya (biasanya CP2102 atau CH340; tulisannya ada di chip kecil dekat port USB).
+   - Klik Upload. Kalau berhenti di `Connecting....` atau muncul *Wrong boot mode*, upload lagi sambil menahan
+     tombol **BOOT** sampai muncul `Writing at ...`. Masih gagal? Tools → Upload Speed → 115200.
+   - WiFi yang dipakai harus 2,4 GHz. ESP32 tidak bisa tersambung ke WiFi 5 GHz; hotspot HP biasanya bisa
+     diatur ke 2,4 GHz.
 3. Buka Serial Monitor ESP32 (baud 115200). Catat alamat IP yang muncul, mis. `Tersambung. IP: 192.168.1.24`.
    Kalau WiFi gagal, ESP32 membuat WiFi sendiri bernama `fireguard-robot` (password `kopak1234`) dengan alamat `192.168.4.1`.
 4. Sambungkan kabel ke Uno sesuai gambar (pembagi tegangan 1k/2k **wajib** di jalur Uno TX → ESP32).
