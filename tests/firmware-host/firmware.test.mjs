@@ -89,23 +89,32 @@ const hosts = [];
 const mk = (bin) => { const h = new Host(bin); hosts.push(h); return h; };
 after(() => hosts.forEach((h) => h.close()));
 
+// varian konfigurasi: ganti baris #define tertentu; gagal kalau barisnya tidak ditemukan
+function variant(name, file, pairs) {
+  let src = fs.readFileSync(path.join(root, file), 'utf8');
+  for (const [from, to] of pairs) {
+    assert.ok(src.includes(from), `${file}: tidak ada baris "${from}"`);
+    src = src.replace(from, to);
+  }
+  const p = path.join(build, `${name}.ino`);
+  fs.mkdirSync(build, { recursive: true });
+  fs.writeFileSync(p, src);
+  return compile(name, p);
+}
+
 let binFG, binEB, binFGv, binEBr;
 before(() => {
-  binFG = compile('fireguard', path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'));
+  binFG = compile('fireguard', path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'));     // bawaan: 3 sensor api
   binEB = compile('ecobot', path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'));
-  const src = fs.readFileSync(path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'), 'utf8')
-    .replace('#define FLAME_COUNT     2 ', '#define FLAME_COUNT     3 ')
-    .replace('#define GAS_COUNT       1 ', '#define GAS_COUNT       2 ')
-    .replace('#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1');
-  const vpath = path.join(build, 'fg_variant.ino');
-  fs.writeFileSync(vpath, src);
-  binFGv = compile('fireguard_variant', vpath);
-  const ebRelay = fs.readFileSync(path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'), 'utf8')
-    .replace('#define BRUSH_USE_PWM   1', '#define BRUSH_USE_PWM   0')
-    .replace('#define BRUSH_ACTIVE_HIGH 1', '#define BRUSH_ACTIVE_HIGH 0');
-  const rpath = path.join(build, 'eb_relay.ino');
-  fs.writeFileSync(rpath, ebRelay);
-  binEBr = compile('ecobot_relay', rpath);
+  binFGv = variant('fireguard_variant', 'firmware/fireguard_uno/fireguard_uno.ino', [
+    ['#define FLAME_COUNT     3 ', '#define FLAME_COUNT     2 '],
+    ['#define GAS_COUNT       1 ', '#define GAS_COUNT       2 '],
+    ['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1'],
+  ]);
+  binEBr = variant('ecobot_relay', 'firmware/ecobot_uno/ecobot_uno.ino', [
+    ['#define BRUSH_USE_PWM   1', '#define BRUSH_USE_PWM   0'],
+    ['#define BRUSH_ACTIVE_HIGH 1', '#define BRUSH_ACTIVE_HIGH 0'],
+  ]);
 });
 
 // ====================================================================
@@ -135,9 +144,9 @@ test('FireGuard: pesan info & telemetri adalah JSON valid dengan isi yang benar'
   await fgBoot(h);
   const info = h.infos[0];
   assert.equal(info.robot, 'fireguard');
-  assert.equal(info.fw, '1.1.0');
-  assert.deepEqual(info.flame, ['Kiri', 'Kanan']);
-  assert.deepEqual(info.flamePins, ['A0', 'A1']);
+  assert.equal(info.fw, '1.2.0');
+  assert.deepEqual(info.flame, ['Kiri', 'Depan', 'Kanan']);
+  assert.deepEqual(info.flamePins, ['A0', 'A1', 'A2']);
   assert.deepEqual(info.gas, ['MQ-2']);
   assert.deepEqual(info.th, { fw: 700, fd: 400, gw: 350, gd: 550 });
   assert.deepEqual(info.noz, { min: 40, max: 140, home: 90 });
@@ -145,8 +154,8 @@ test('FireGuard: pesan info & telemetri adalah JSON valid dengan isi yang benar'
   const t = h.tel();
   assert.equal(t.m, 'A');
   assert.equal(t.st, 'idle');
-  assert.equal(t.fl.length, 2);
-  assert.deepEqual(t.fs, [0, 0]);
+  assert.equal(t.fl.length, 3);
+  assert.deepEqual(t.fs, [0, 0, 0]);
   assert.equal(t.gs.length, 1);
   assert.deepEqual(t.gl, [0]);
   assert.equal(t.gw, 1, 'sensor gas masih pemanasan');
@@ -192,7 +201,7 @@ test('FireGuard otomatis: siaga -> belok ke api -> semprot -> jeda -> siaga', as
   h.analog(FG.FL[0], 500);             // api lemah di sisi kiri
   await h.t(600);
   assert.equal(h.tel().st, 'turn');
-  assert.deepEqual(h.tel().fs, [1, 0]);
+  assert.deepEqual(h.tel().fs, [1, 0, 0]);
   const m = await fgMotors(h);
   assert.deepEqual(m, { l: -150, r: 150 }, 'berputar ke kiri di tempat');
 
@@ -230,19 +239,34 @@ test('FireGuard otomatis: pompa dibatasi 15 detik lalu jeda, lanjut lagi kalau a
   assert.equal(h.tel().st, 'spray', 'api masih ada -> lanjut menyemprot');
 });
 
-test('FireGuard: api di tengah (3 sensor) -> maju lurus', async () => {
-  const h = mk(binFGv);
+test('FireGuard 3 sensor: api di depan -> maju lurus, api pindah ke kanan -> berputar ke kanan', async () => {
+  const h = mk(binFG);
   await fgBoot(h);
-  const info = h.infos[0];
-  assert.deepEqual(info.flame, ['Kiri', 'Depan', 'Kanan']);
-  assert.deepEqual(info.gas, ['MQ-2 #1', 'MQ-2 #2']);
-  assert.equal(h.tel().fl.length, 3);
-  assert.equal(h.tel().gs.length, 2);
-  assert.ok('bat' in h.tel());
-  h.analog(FG.FL[1], 550);             // hanya sensor depan melihat api
+  h.analog(FG.FL[1], 550);             // hanya sensor Depan (A1) melihat api
   await h.t(1500);
   assert.equal(h.tel().st, 'approach');
   assert.deepEqual(await fgMotors(h), { l: 140, r: 140 });
+  h.analog(FG.FL[1], 950); h.analog(FG.FL[2], 550);   // api sekarang hanya terlihat sensor Kanan (A2)
+  await h.t(600);
+  assert.equal(h.tel().st, 'turn');
+  assert.deepEqual(await fgMotors(h), { l: 150, r: -150 }, 'berputar ke kanan di tempat');
+});
+
+test('FireGuard varian 2 sensor api + 2 MQ-2 + baterai: info menyesuaikan, A1 menjadi sensor Kanan', async () => {
+  const h = mk(binFGv);
+  await fgBoot(h);
+  const info = h.infos[0];
+  assert.deepEqual(info.flame, ['Kiri', 'Kanan']);
+  assert.deepEqual(info.flamePins, ['A0', 'A1']);
+  assert.deepEqual(info.gas, ['MQ-2 #1', 'MQ-2 #2']);
+  assert.equal(h.tel().fl.length, 2);
+  assert.equal(h.tel().gs.length, 2);
+  assert.ok('bat' in h.tel());
+  assert.ok(h.notes.some((l) => /\(2 sensor api, 2 MQ-2\)/.test(l)), h.notes.join('\n'));
+  h.analog(FG.FL[1], 550);
+  await h.t(1500);
+  assert.equal(h.tel().st, 'turn');
+  assert.deepEqual(await fgMotors(h), { l: 150, r: -150 }, 'api di A1 (Kanan) -> berputar ke kanan');
 });
 
 test('FireGuard manual: DRV, batas kecepatan, dead-man, pompa, nozzle, STOP', async () => {
@@ -595,7 +619,7 @@ const notesSince = (h, n) => h.notes.slice(n);
 test('Serial Monitor: pesan pembuka menyebut versi & mode, baris lain tetap JSON', async () => {
   const fg = mk(binFG);
   await fgBoot(fg);
-  assert.ok(fg.notes.some((l) => /^# FireGuard 1\.1\.0 siap, mode OTOMATIS/.test(l)), fg.notes.join('\n'));
+  assert.ok(fg.notes.some((l) => /^# FireGuard 1\.2\.0 siap \(3 sensor api, 1 MQ-2\), mode OTOMATIS/.test(l)), fg.notes.join('\n'));
   assert.ok(fg.notes.some((l) => /Ketik MODE M dulu/.test(l)));
   assert.ok(fg.infos.length >= 1 && fg.tels.length >= 1, 'info & telemetri tetap terkirim');
   const eb = mk(binEB);

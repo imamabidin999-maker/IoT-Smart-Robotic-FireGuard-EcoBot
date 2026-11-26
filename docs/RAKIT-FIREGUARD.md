@@ -15,10 +15,10 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 - Chassis 4WD + 4 motor DC TT + roda
 - 1 modul L298N
 - 2 baterai 18650
-- 2 sensor api IR (modul 4 pin: VCC, GND, DO, AO)
+- 3 sensor api IR (modul 4 pin: VCC, GND, DO, AO)
 - 1 sensor gas MQ-2 (boleh 2)
 - Arduino Uno
-- ESP32 (ESP extension)
+- ESP32 DevKit yang ditancapkan ke papan ekstensinya (ESP extension)
 - ESP32-CAM
 - 1 mini servo (SG90 / MG90S), untuk mengarahkan nozzle
 
@@ -36,6 +36,7 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 | Dioda 1N4007 | pelindung kontak relay dari lonjakan tegangan pompa |
 | Resistor 1 kΩ dan 2 kΩ | menurunkan tegangan sinyal Uno → ESP32 |
 | Kapasitor elektrolit 470 µF 16 V | penstabil daya ESP32-CAM |
+| Breadboard kecil (170 atau 400 lubang) | membagi 5V dan GND ke banyak sensor, dan tempat resistor pembagi tegangan |
 | Kabel jumper, terminal, baut-spacer, lem tembak, isolasi, cable tie | perakitan |
 | Adaptor USB-TTL atau papan ESP32-CAM-MB | upload ke ESP32-CAM |
 | (opsional) 2 resistor 10 kΩ | mengukur baterai |
@@ -54,8 +55,9 @@ Lihat robot dari atas:
 
 ```
                           DEPAN
-     [Api Kiri]      nozzle di servo      [Api Kanan]
-          \            ESP32-CAM             /
+     [Api Kiri]        [Api Depan]        [Api Kanan]
+          \          nozzle + servo         /
+           \           ESP32-CAM           /
       ┌───────────────────────────────────────┐
       │(roda)                           (roda)│
       │      Uno · L298N · ESP32 · buck ·     │  ← dek atas
@@ -76,9 +78,14 @@ Lihat robot dari atas:
 3. **Buat nozzle.** Masukkan pompa ke tangki, sambungkan selang, lalu ujung selang dijepit/dilem ke lengan
    servo. Ujung selang yang dipersempit (pakai sedotan kaku atau ujung pulpen bekas) membuat semprotan lebih
    jauh. Servo dipasang di depan tengah. **Lengan servo (horn) jangan dipasang dulu**, nanti di langkah 6.
-4. **Pasang dua sensor api** di sudut depan kiri dan kanan, setinggi ±5–10 cm dari lantai (kira-kira setinggi
-   api lilin). Hadapkan ke depan dan sedikit serong ke luar (±20–30°), supaya api yang lurus di depan
-   terlihat oleh keduanya. Pastikan tidak tertutup selang atau nozzle.
+4. **Pasang tiga sensor api** setinggi ±5–10 cm dari lantai (kira-kira setinggi api lilin):
+   - **Depan** di tengah, menghadap lurus ke depan. Boleh sedikit di bawah atau di samping nozzle, asal tidak
+     terhalang.
+   - **Kiri** dan **Kanan** di sudut depan, serong ke luar ±30°.
+
+   Dengan susunan ini, api yang lurus di depan paling kuat terbaca sensor Depan sehingga robot maju, sedangkan
+   api di samping terbaca sensor Kiri atau Kanan sehingga robot berbelok ke arahnya. Pastikan ketiganya tidak
+   tertutup selang atau nozzle.
 5. **MQ-2** di bagian paling atas (asap naik ke atas), jauh dari arah semprotan air.
 6. **ESP32-CAM** di depan, sedikit lebih tinggi dari nozzle, menghadap ke depan. Beri pelindung kecil supaya
    tidak terkena cipratan.
@@ -100,7 +107,12 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 3. Sambungkan baterai ke **input buck converter saja dulu**. Nyalakan, ukur output buck, lalu putar trimpot
    sampai **5,0–5,1 V**. Matikan lagi. Langkah ini wajib: buck baru biasanya keluar tegangan sembarang dan bisa
    merusak ESP32.
-4. Siapkan "jalur GND bersama" (satu terminal atau titik solder) untuk semua GND.
+4. Siapkan "jalur GND bersama" untuk semua GND. Paling mudah pakai **breadboard kecil**: rel **−** jadi GND
+   bersama, rel **+** diisi 5V dari Uno untuk sensor api. Uno hanya punya satu pin 5V dan tiga pin GND, jadi
+   tanpa breadboard kabelnya tidak cukup.
+5. Kalau ESP32 Anda terpasang di papan ekstensi yang punya jack DC (cek tulisan di dekatnya; banyak yang
+   menerima 6,5–16 V), papan itu boleh diberi daya langsung dari baterai 2S lewat jack tersebut. Buck tetap
+   dipakai untuk servo, MQ-2, ESP32-CAM, dan relay.
 
 ---
 
@@ -164,23 +176,26 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 
 ---
 
-## 4. Dua sensor api
+## 4. Tiga sensor api
 
-Setiap modul punya 4 pin. Yang dipakai **AO** (analog), DO dibiarkan kosong.
+Setiap modul punya 4 pin. Yang dipakai **AO** (analog), DO dibiarkan kosong. VCC dan GND tiap sensor diambil
+dari rel breadboard (langkah 2): rel **+** = 5V Uno, rel **−** = GND bersama.
 
-| Pin modul | Sensor Kiri | Sensor Kanan |
-|---|---|---|
-| AO | A0 | A1 |
-| VCC | 5V Uno | 5V Uno |
-| GND | GND | GND |
-| DO | — | — |
+| Pin modul | Sensor Kiri | Sensor Depan | Sensor Kanan |
+|---|---|---|---|
+| AO | A0 | A1 | A2 |
+| VCC | rel + (5V Uno) | rel + | rel + |
+| GND | rel − (GND) | rel − | rel − |
+| DO | — | — | — |
 
-**Uji:** ketik `GET`, lalu cari `"fl":[...]` di baris yang muncul. Angka pertama = Kiri, kedua = Kanan.
+**Uji:** ketik `GET`, lalu cari `"fl":[...]` di baris yang muncul. Urutan angkanya: Kiri, Depan, Kanan.
 
 - Tanpa api, angkanya besar (biasanya ratusan sampai mendekati 1023, tergantung cahaya ruangan).
-- Nyalakan korek ±30 cm di depan sensor kiri: angka pertama harus turun. Pindah ke kanan: angka kedua yang turun.
-  Kalau tertukar, tukar kabel AO-nya.
+- Nyalakan korek ±30 cm di depan tiap sensor bergantian: angka sensor itulah yang paling turun. Kalau
+  urutannya tertukar, tukar kabel AO-nya.
 - `"fs":[...]` adalah statusnya: `0` aman, `1` waspada, `2` api.
+- Pesan pembuka di Serial Monitor harus menulis `(3 sensor api, ...)`. Kalau tertulis 2, berarti firmware di
+  Uno masih versi lama atau `FLAME_COUNT` di sketch masih `2`.
 
 Catatan:
 
@@ -188,8 +203,8 @@ Catatan:
   mengubah angka AO. Karena firmware membaca AO, kalibrasi dilakukan lewat angka `FLAME_WARN` dan
   `FLAME_DANGER` di sketch (langkah 11).
 - Sensor ini juga peka sinar matahari dan lampu pijar. Uji dan pakai robot jauh dari jendela.
-- Kalau Anda punya **3 sensor**, urutannya menjadi Kiri **A0**, Depan **A1**, Kanan **A2** (kabel Kanan pindah ke
-  A2), lalu ubah `FLAME_COUNT` jadi `3`. Dashboard menyesuaikan sendiri.
+- Kalau hanya memakai **2 sensor**, ubah `FLAME_COUNT` jadi `2`, lalu pasang Kiri di **A0** dan Kanan di
+  **A1**. Dashboard menyesuaikan sendiri.
 
 ---
 
@@ -270,14 +285,23 @@ Dioda 1N4007 melintang di kabel pompa: sisi bergaris (katoda) ke (+), sisi lain 
 
 ## 8. ESP32 (jembatan WiFi)
 
+ESP32 hanya butuh **3 kabel** ke Uno. Semua sensor, servo, dan L298N tetap ke Uno, bukan ke ESP32.
+
 ```
-Uno TX (D1) ──[1 kΩ]──┬──► ESP32 GPIO16 (RX2)
+Uno D1 (TX) ──[1 kΩ]──┬──► ESP32 GPIO16 (RX2)   di papan ekstensi: pin S berlabel 16
                       [2 kΩ]
-                       └── GND
-Uno RX (D0) ◄──────────── ESP32 GPIO17 (TX2)
-ESP32 VIN (5V) ◄───────── buck 5 V
-ESP32 GND ─────────────── GND bersama
+                       └── rel − (GND)
+Uno D0 (RX) ◄──────────── ESP32 GPIO17 (TX2)   di papan ekstensi: pin S berlabel 17
+rel − (GND) ───────────── GND ESP32            di papan ekstensi: pin G mana saja
 ```
+
+- Di papan ekstensi, cari label **16** dan **17** (kadang ditulis RX2/TX2, IO16/IO17, atau G16/G17). Kalau
+  tiap GPIO punya tiga pin berjejer **G V S**, kabel sinyal masuk ke **S** dan GND ke **G**. Pin **V** tidak
+  dipakai, dan jangan disambung ke 5V Uno.
+- Dua resistor dipasang di breadboard. Tidak punya 2 kΩ? Pakai dua 1 kΩ yang diseri. Jangan menyambung D1
+  langsung ke GPIO16: ESP32 bekerja di 3,3 V, sinyal 5 V dari Uno bisa merusaknya pelan-pelan.
+- Daya ESP32: saat uji cukup kabel USB ke laptop. Di robot, lewat jack DC papan ekstensi dari baterai 2S
+  (langkah 2, nomor 5) atau 5V dari buck ke pin 5V papan.
 
 1. Buka `firmware/esp_bridge/esp_bridge.ino`. `ROBOT_NAME` sudah `"fireguard"`, jadi cukup ubah
    `WIFI_SSID` dan `WIFI_PASS` sesuai WiFi/hotspot yang akan dipakai.
@@ -321,7 +345,7 @@ dekat robot ke api sebelum menyemprot.
 1. **Ukur jangkauan pompa.** Mode Manual, tahan tombol **Tahan untuk Menyemprotkan Air** di dashboard (ujung
    selang ke ember). Lihat seberapa jauh air sampai, misalnya 40 cm. Jarak semprot yang aman kira-kira
    setengah sampai dua pertiganya, misalnya 25 cm.
-2. Nyalakan lilin di atas piring logam, taruh di depan robot (di tengah, di antara dua sensor) sejauh jarak
+2. Nyalakan lilin di atas piring logam, taruh di depan robot (lurus di depan sensor Depan) sejauh jarak
    semprot tadi. Lihat angka sensor api (di kartu Deteksi Api, atau `GET` di Serial Monitor). Ambil angka yang
    paling kecil, misalnya 360. **`FLAME_DANGER` = angka itu + ±30**, jadi 390.
 3. Mundurkan lilin ke jarak terjauh tempat robot sebaiknya mulai mencari api, misalnya 1 m. Catat angkanya,
@@ -369,6 +393,7 @@ Lalu di lantai:
 | Muncul `# Roda diperintah berputar...` tapi roda diam | perintah sudah sampai ke Uno; cek kabel L298N, GND bersama, dan baterai dengan `tes_motor` |
 | Roda cuma berdengung, tidak berputar | PWM terlalu kecil untuk beban robot: `SPD 255`, lalu naikkan `MIN_PWM` di sketch |
 | Robot bergerak sendiri padahal tidak ada api | cahaya lampu/matahari terbaca sebagai api: jauhi jendela, atau **turunkan** `FLAME_WARN` |
+| Api lurus di depan, tapi robot malah berbelok ke kanan | `FLAME_COUNT` masih `2`, sehingga sensor Depan di A1 dibaca sebagai Kanan. Ubah jadi `3` lalu upload ulang |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
 | Robot menabrak lilin | `FLAME_DANGER` terlalu kecil, naikkan |
 | Relay langsung menyala begitu robot dinyalakan | `PUMP_ACTIVE_HIGH` terbalik |

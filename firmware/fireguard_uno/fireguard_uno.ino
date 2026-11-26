@@ -20,15 +20,15 @@
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
-#define FW_VERSION      "1.1.0"
+#define FW_VERSION      "1.2.0"
 #define SERIAL_BAUD     57600
 
 // ---- jumlah sensor yang terpasang ----
-#define FLAME_COUNT     2      // 2 (Kiri, Kanan) atau 3 (Kiri, Depan, Kanan)
+#define FLAME_COUNT     3      // 3 (Kiri A0, Depan A1, Kanan A2) atau 2 (Kiri A0, Kanan A1)
 #define GAS_COUNT       1      // 1 atau 2
 
 // ---- pin ----
-// Sensor api (output analog AO), urutan: Kiri, Depan/Kanan, Kanan
+// Sensor api (output analog AO), urutan: Kiri, Depan, Kanan (kalau FLAME_COUNT 2: Kiri, Kanan)
 static const uint8_t FLAME_PINS[3] = { A0, A1, A2 };
 // Sensor gas MQ-2 (output analog AO)
 static const uint8_t GAS_PINS[2]   = { A3, A4 };
@@ -557,7 +557,8 @@ void setup() {
   readSensors(now);
   setMode(MODE_AUTO, now);
   sendInfo();
-  Serial.print(F("# FireGuard " FW_VERSION " siap, mode OTOMATIS: diam sampai sensor api melihat api.\n"
+  Serial.print(F("# FireGuard " FW_VERSION " siap (" XSTR(FLAME_COUNT) " sensor api, " XSTR(GAS_COUNT) " MQ-2), "
+                 "mode OTOMATIS: diam sampai sensor api melihat api.\n"
                  "# Uji dari Serial Monitor: ketik MODE M, lalu DRV 0 60 (maju) atau DRV 60 0 (putar kanan).\n"
                  "# Sensor api belum dipasang? Ketik MODE M dulu, pin yang kosong bisa terbaca seperti ada api.\n"
                  "# HELP = daftar perintah.\n"));

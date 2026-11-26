@@ -69,9 +69,9 @@ Uno D6 ───────┤ ENB  ← cabut jumper-nya dulu!  │
 | ESP (Serial) | D0 (RX), D1 (TX) | silang: TX Uno → RX ESP (lewat pembagi tegangan, bagian 5); RX Uno ← TX ESP |
 | L298N ENA / IN1 / IN2 | D5 / D7 / D8 | sisi **kiri** (motor kiri depan + kiri belakang, dipasang paralel) |
 | L298N ENB / IN3 / IN4 | D6 / D9 / D10 | sisi **kanan** |
-| Sensor api 1 (Kiri) | A0 | pin **AO** modul |
-| Sensor api 2 (Kanan) | A1 | pin **AO** modul |
-| Sensor api 3 | A2 | hanya kalau `FLAME_COUNT 3`; urutannya jadi Kiri A0, **Depan A1**, **Kanan A2** |
+| Sensor api Kiri | A0 | pin **AO** modul |
+| Sensor api Depan | A1 | pin **AO** modul |
+| Sensor api Kanan | A2 | pin **AO** modul. Kalau hanya 2 sensor (`FLAME_COUNT 2`): Kiri A0, Kanan **A1**, A2 kosong |
 | MQ-2 #1 | A3 | pin **AO** modul |
 | MQ-2 #2 | A4 | hanya kalau `GAS_COUNT 2` |
 | Baterai (pembagi tegangan) | A5 | opsional, `HAS_BATTERY_SENSE 1` |
@@ -116,9 +116,9 @@ dan menyemprot). Karena FireGuard tidak punya sensor rintangan, `FLAME_DANGER` s
 dekat robot ke api; cara mengukurnya ada di RAKIT-FIREGUARD.md langkah 11. Sensor IR ini juga terpengaruh
 cahaya matahari dan lampu pijar, jadi kalibrasi di tempat robot dipakai.
 
-**Soal jumlah sensor:** dari daftar Anda ("flame sensor × 3, berjumlah 2" dan "MQ-2 sekitar 1 atau 2"),
-bawaan sketch adalah **2 sensor api + 1 MQ-2**. Kalau ternyata 3 api atau 2 gas, cukup ubah
-`FLAME_COUNT` / `GAS_COUNT` di sketch. Dashboard mengikuti sendiri.
+**Soal jumlah sensor:** bawaan sketch adalah **3 sensor api (Kiri, Depan, Kanan) + 1 MQ-2**. Kalau hanya
+2 sensor api atau ada 2 MQ-2, cukup ubah `FLAME_COUNT` / `GAS_COUNT` di sketch. Dashboard mengikuti sendiri.
+FireGuard tidak memakai sensor ultrasonik; enam HC-SR04 di daftar Anda untuk EcoBot.
 
 MQ-2 perlu pemanasan sekitar 20 detik setiap dinyalakan (dashboard menampilkan "Pemanasan"), dan idealnya
 dibakar-awal 24 jam saat pertama dipakai supaya pembacaan stabil. Nilai `GAS_WARN 350` / `GAS_DANGER 550`
@@ -246,8 +246,13 @@ GND Uno ─────────────────────── GN
 - Di **ESP8266** (NodeMCU), jalur Uno memakai UART utama (RX = GPIO3, TX = GPIO1), sehingga
   Serial Monitor/USB tidak bisa dipakai untuk log saat terhubung ke Uno. Pilihan ESP32 lebih nyaman.
 - **Saat upload sketch ke Uno, lepas kabel D0/D1.** Uno cuma punya satu Serial dan dipakai USB juga.
-- "ESP extension" di daftar Anda saya asumsikan modul ESP32/ESP8266 (atau papan ekstensinya). Sketch
-  `esp_bridge` jalan di keduanya.
+- **Papan ekstensi ESP32** (ESP32 DevKit ditancapkan di tengah papan): pakai pin berlabel **16** dan **17**
+  (kadang ditulis RX2/TX2, IO16/IO17, atau G16/G17). Kalau tiap GPIO punya tiga pin berjejer **G V S**, kabel
+  sinyal masuk ke **S**, GND ke **G** mana saja, dan pin **V** tidak dipakai. Jangan menyambungkan pin V/5V
+  papan ke 5V Uno: dua regulator yang disatukan bisa saling melawan.
+- Daya papan ekstensi: saat uji cukup lewat kabel USB ESP32. Di robot, lewat jack DC papan (cek tulisan di
+  dekatnya; banyak papan menerima 6,5–16 V, cocok untuk baterai 2S) atau 5 V dari buck ke pin 5V papan.
+- Sketch `esp_bridge` jalan di ESP32 dan ESP8266.
 - Isi `WIFI_SSID`, `WIFI_PASS`, dan `ROBOT_NAME` (`fireguard` atau `ecobot`). Kalau WiFi gagal tersambung
   dalam 15 detik, ESP membuat WiFi sendiri bernama `<robot>-robot` (password dari `AP_PASS`), dan
   dashboard bisa tersambung ke `192.168.4.1`.
