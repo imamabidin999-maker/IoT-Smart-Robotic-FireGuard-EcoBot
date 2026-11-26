@@ -33,7 +33,7 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 | Selang silikon ±50 cm (diameter mengikuti pipa pompa, biasanya 5–8 mm) | dari pompa ke nozzle |
 | Botol plastik 300–600 ml | tangki air |
 | Modul relay 1 kanal 5 V | saklar pompa |
-| Dioda 1N4007 | pelindung kontak relay dari lonjakan tegangan pompa |
+| Dioda 1N4007 (3 buah) | 1 untuk pelindung kontak relay dari lonjakan tegangan pompa, 2 untuk menurunkan tegangan pompa kalau tanpa buck |
 | Resistor 1 kΩ dan 2 kΩ | menurunkan tegangan sinyal Uno → ESP32 |
 | Kapasitor elektrolit 470 µF 16 V | penstabil daya ESP32-CAM |
 | Kabel jumper female–female dan female–male | pin sensor dan pin papan ekstensi sama-sama jantan, jadi butuh ujung female |
@@ -274,7 +274,8 @@ Kerjakan dua tahap: relay dulu tanpa pompa, baru pompanya.
 
 **Tahap A, relay saja**
 
-1. Modul relay: **VCC ← 5 V buck**, **GND ← GND bersama**, **IN ← D4**.
+1. Modul relay: **VCC ← 5 V buck**, **GND ← GND bersama**, **IN ← D4**. Belum ada buck? VCC relay boleh dari
+   pin V papan ekstensi, karena koil relay cuma memakan ±70 mA.
 2. Banyak modul relay 1 kanal (terutama yang memakai optocoupler) **aktif-LOW**: relay menyala kalau IN diberi
    LOW. Untuk modul seperti itu, ubah `PUMP_ACTIVE_HIGH` jadi `0` di sketch, lalu upload. Kalau modul Anda punya
    jumper pilihan **H/L**, pasang di **L**. Belum yakin modulnya jenis apa? Langkah 3 akan menunjukkannya.
@@ -307,7 +308,11 @@ Dioda 1N4007 melintang di kabel pompa: sisi bergaris (katoda) ke (+), sisi lain 
    kali berturut-turut. Air harus menyembur.
 4. Cek semua sambungan selang tidak bocor, terutama yang dekat dek elektronik.
 5. Kalau pompa Anda versi 6–12 V, ambil daya **COM dari baterai (+)**, bukan dari 5 V buck.
-6. Kalau ESP32 atau kamera ikut restart setiap pompa menyala, buck-nya kurang kuat. Pakai buck yang lebih
+6. **Tanpa buck:** pompa 3–6 V juga boleh mengambil **COM dari baterai (+)**, asal di kabel dari NO ke pompa (+)
+   dipasang **2 dioda 1N4007 seri** dengan sisi bergaris menghadap ke pompa. Tiap dioda menurunkan ±0,9 V, jadi
+   pompa kebagian ±5,5–6,5 V, bukan 7,4–8,4 V. Dioda pelindung yang melintang di kabel pompa tetap dipasang.
+   Semburan terlalu lemah? Pakai 1 dioda saja, tapi pompanya jadi lebih cepat panas.
+7. Kalau ESP32 atau kamera ikut restart setiap pompa menyala, buck-nya kurang kuat. Pakai buck yang lebih
    besar, atau buck kedua khusus untuk pompa.
 
 ---
