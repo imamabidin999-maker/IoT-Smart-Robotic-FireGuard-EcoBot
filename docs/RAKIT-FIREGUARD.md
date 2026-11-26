@@ -345,8 +345,13 @@ Uno GND ───────────────── pin G papan ekstensi
    - Colok kabel USB ke **port micro-USB di papan ESP32 itu sendiri** (di antara tombol EN dan BOOT), bukan ke
      port USB papan ekstensi: port papan ekstensi biasanya hanya untuk daya. Pakai kabel data, bukan kabel yang
      cuma untuk mengecas.
-   - Pilih board **ESP32 Dev Module** dan port COM yang muncul saat ESP32 dicolok. Kalau tidak ada port baru,
-     pasang driver chip USB-nya (biasanya CP2102 atau CH340; tulisannya ada di chip kecil dekat port USB).
+   - Pilih board **ESP32 Dev Module** dan port COM yang muncul saat ESP32 dicolok. Port bernama *Standard Serial
+     over Bluetooth link* milik Bluetooth laptop, bukan ESP32. Kalau tidak ada port baru, buka Device Manager:
+     ESP32 yang drivernya belum terpasang muncul di *Other devices* bertanda kuning, misalnya
+     `CP2102 USB to UART Bridge Controller`. Untuk CP2102, unduh
+     [CP210x Universal Windows Driver](https://www.silabs.com/documents/public/software/CP210x_Universal_Windows_Driver.zip)
+     dan ekstrak ZIP-nya, lalu klik kanan perangkat tadi → *Update driver* → *Browse my computer for drivers* →
+     pilih folder hasil ekstrak. Untuk chip CH340, driver-nya *CH341SER* dari situs WCH.
    - Klik Upload. Kalau berhenti di `Connecting....` atau muncul *Wrong boot mode*, upload lagi sambil menahan
      tombol **BOOT** sampai muncul `Writing at ...`. Masih gagal? Tools → Upload Speed → 115200.
    - WiFi yang dipakai harus 2,4 GHz. ESP32 tidak bisa tersambung ke WiFi 5 GHz; hotspot HP biasanya bisa
