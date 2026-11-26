@@ -476,6 +476,7 @@ Lalu di lantai:
 | Robot bergerak sendiri padahal tidak ada api | cahaya lampu/matahari terbaca sebagai api: jauhi jendela, atau **turunkan** `FLAME_WARN` |
 | Api lurus di depan, tapi robot malah berbelok ke kanan | `FLAME_COUNT` masih `2`, sehingga sensor Depan di A1 dibaca sebagai Kanan. Ubah jadi `3` lalu upload ulang |
 | Ketiga angka sensor api 0, robot mengira ada api besar | papan ekstensi belum menyala (sensor mendapat daya dari pin V-nya), atau kabel VCC sensor lepas |
+| Uno di meja tanpa sensor, tapi status `spray`/`rest` dan relay klik sendiri | pin A0–A4 yang kosong terbaca acak sekitar 200–300, mirip api dekat, dan FireGuard menyala dalam mode Otomatis. Ketik `MODE M` dulu selama menguji tanpa sensor |
 | Angka sensor api tidak pernah di atas ±700 walau tidak ada api | pin V papan ekstensi masih 3,3 V: pindahkan jumpernya ke 5V |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
 | Robot menabrak lilin | `FLAME_DANGER` terlalu kecil, naikkan |
