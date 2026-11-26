@@ -452,6 +452,7 @@ Lalu di lantai:
 | Motor roda selalu kencang | jumper ENA/ENB di L298N belum dicabut |
 | Kamera sering putus / "Brownout" | daya ESP32-CAM kurang: kapasitor, kabel lebih pendek, buck lebih kuat |
 | Kompilasi ESP32 gagal: ratusan `undefined reference` (`String`, `millis`, `yield`), di akhir `final link failed` atau `unsupported binding` | cache kompilasi rusak, biasanya karena kompilasi sebelumnya dihentikan. Tutup Arduino IDE, buka `%LOCALAPPDATA%\arduino` lewat Win+R, hapus folder `sketches` dan `cores` (folder `Arduino15` jangan), lalu Verify lagi sampai selesai. Masih gagal dengan pesan yang sama: di Boards Manager pasang esp32 versi 3.x yang paling baru, hapus kedua folder tadi sekali lagi, lalu Verify |
+| Pojok kanan bawah Arduino IDE menulis `on COMx [not connected]`, padahal lampu ESP32 menyala | laptop tidak melihat ESP32 di port itu. Buka Tools → Port sebelum dan sesudah ESP32 dicolok, lalu pilih port yang baru muncul. Tidak ada port baru: buka Device Manager lalu colok ESP32. Muncul di *Other devices* bertanda kuning = driver belum terpasang (CP2102 → driver CP210x dari Silicon Labs, CH340 → CH341SER dari WCH, CH9102 → CH343SER dari WCH). Daftar tidak berubah sama sekali = kabelnya cuma kabel cas atau port USB laptop bermasalah: ganti kabel dan port |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, jauhkan dari roda, dan pastikan tidak ada kabel atau
 sambungan terbuka di bawah jalur selang air.
