@@ -248,8 +248,12 @@ GND Uno ─────────────────────── GN
 - **Saat upload sketch ke Uno, lepas kabel D0/D1.** Uno cuma punya satu Serial dan dipakai USB juga.
 - **Papan ekstensi ESP32** (ESP32 DevKit ditancapkan di tengah papan): pakai pin berlabel **16** dan **17**
   (kadang ditulis RX2/TX2, IO16/IO17, atau G16/G17). Kalau tiap GPIO punya tiga pin berjejer **G V S**, kabel
-  sinyal masuk ke **S**, GND ke **G** mana saja, dan pin **V** tidak dipakai. Jangan menyambungkan pin V/5V
-  papan ke 5V Uno: dua regulator yang disatukan bisa saling melawan.
+  sinyal masuk ke **S** dan GND ke **G** mana saja. Jangan menyambungkan pin V/5V papan ke 5V Uno: dua
+  regulator yang disatukan bisa saling melawan.
+- Tanpa breadboard, pin **V** dan **G** papan ekstensi bisa dipakai sebagai sumber 5V dan GND untuk sensor (VCC ke
+  V, GND ke G), asal jumper tegangan pin V di posisi **5V** dan pin S di baris yang sama dibiarkan kosong. Sinyal
+  sensor (AO) tetap ke Uno. Pembagi tegangan 1k/2k dibuat sebagai kabel bercabang yang disolder
+  (RAKIT-FIREGUARD.md langkah 8).
 - Daya papan ekstensi: saat uji cukup lewat kabel USB ESP32. Di robot, lewat jack DC papan (cek tulisan di
   dekatnya; banyak papan menerima 6,5–16 V, cocok untuk baterai 2S) atau 5 V dari buck ke pin 5V papan.
 - Sketch `esp_bridge` jalan di ESP32 dan ESP8266.

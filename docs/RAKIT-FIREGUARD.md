@@ -36,7 +36,9 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 | Dioda 1N4007 | pelindung kontak relay dari lonjakan tegangan pompa |
 | Resistor 1 kΩ dan 2 kΩ | menurunkan tegangan sinyal Uno → ESP32 |
 | Kapasitor elektrolit 470 µF 16 V | penstabil daya ESP32-CAM |
-| Breadboard kecil (170 atau 400 lubang) | membagi 5V dan GND ke banyak sensor, dan tempat resistor pembagi tegangan |
+| Kabel jumper female–female dan female–male | pin sensor dan pin papan ekstensi sama-sama jantan, jadi butuh ujung female |
+| Colokan DC jantan 5,5 mm dengan terminal sekrup | memberi daya papan ekstensi ESP32 dari baterai lewat jack DC-nya |
+| (opsional) Breadboard kecil | tempat membagi 5V/GND dan memasang resistor. Tanpa breadboard, pakai pin V/G papan ekstensi ESP32 (langkah 2) |
 | Kabel jumper, terminal, baut-spacer, lem tembak, isolasi, cable tie | perakitan |
 | Adaptor USB-TTL atau papan ESP32-CAM-MB | upload ke ESP32-CAM |
 | (opsional) 2 resistor 10 kΩ | mengukur baterai |
@@ -107,12 +109,20 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 3. Sambungkan baterai ke **input buck converter saja dulu**. Nyalakan, ukur output buck, lalu putar trimpot
    sampai **5,0–5,1 V**. Matikan lagi. Langkah ini wajib: buck baru biasanya keluar tegangan sembarang dan bisa
    merusak ESP32.
-4. Siapkan "jalur GND bersama" untuk semua GND. Paling mudah pakai **breadboard kecil**: rel **−** jadi GND
-   bersama, rel **+** diisi 5V dari Uno untuk sensor api. Uno hanya punya satu pin 5V dan tiga pin GND, jadi
-   tanpa breadboard kabelnya tidak cukup.
-5. Kalau ESP32 Anda terpasang di papan ekstensi yang punya jack DC (cek tulisan di dekatnya; banyak yang
-   menerima 6,5–16 V), papan itu boleh diberi daya langsung dari baterai 2S lewat jack tersebut. Buck tetap
-   dipakai untuk servo, MQ-2, ESP32-CAM, dan relay.
+4. **5V dan GND untuk sensor: pakai pin V dan G di papan ekstensi ESP32.** Uno hanya punya satu pin 5V, jadi tidak
+   cukup untuk banyak sensor. Di papan ekstensi, tiap GPIO punya tiga pin berjejer **G V S**. Semua pin **G**
+   saling tersambung (GND), begitu juga semua pin **V**. Jadi pin V dan G dari baris mana saja boleh dipakai
+   untuk daya sensor, **asal pin S di baris itu dibiarkan kosong** (pin S adalah GPIO ESP32).
+   - Pindahkan jumper pilihan tegangan pin V ke **5V**, nyalakan papan, lalu ukur antara pin V dan G: harus
+     ±4,7–5,2 V. Ini penting: kalau V hanya 3,3 V, angka sensor api ikut turun dan robot mengira selalu ada api.
+   - Sambungkan GND Uno, GND L298N, dan GND buck masing-masing ke satu pin G papan ekstensi, supaya semua GND
+     menyatu.
+   - Jangan menyambung pin V papan ke pin 5V Uno: dua regulator yang disatukan bisa saling melawan.
+   - Kalau punya breadboard kecil, itu juga boleh dipakai untuk membagi 5V dan GND.
+5. **Daya papan ekstensi:** saat uji cukup lewat kabel USB ESP32. Di robot, lewat jack DC papan dari baterai 2S
+   (cek tulisan di dekatnya; banyak yang menerima 6,5–16 V) memakai colokan DC jantan bersekrup, atau 5V dari
+   buck ke pin 5V papan. Uno dan papan ekstensi sebaiknya menyala bersamaan dari saklar yang sama: kalau papan
+   ekstensi mati, sensor api tidak dapat daya, angkanya jadi 0, dan itu terbaca seperti api besar.
 
 ---
 
@@ -178,17 +188,20 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 
 ## 4. Tiga sensor api
 
-Setiap modul punya 4 pin. Yang dipakai **AO** (analog), DO dibiarkan kosong. VCC dan GND tiap sensor diambil
-dari rel breadboard (langkah 2): rel **+** = 5V Uno, rel **−** = GND bersama.
+Setiap modul punya 4 pin. Yang dipakai **AO** (analog), DO dibiarkan kosong. AO masuk ke Uno, sedangkan VCC
+dan GND diambil dari pin V dan G papan ekstensi ESP32 (langkah 2, nomor 4).
 
 | Pin modul | Sensor Kiri | Sensor Depan | Sensor Kanan |
 |---|---|---|---|
-| AO | A0 | A1 | A2 |
-| VCC | rel + (5V Uno) | rel + | rel + |
-| GND | rel − (GND) | rel − | rel − |
+| AO | Uno A0 | Uno A1 | Uno A2 |
+| VCC | pin V papan ekstensi | pin V | pin V |
+| GND | pin G papan ekstensi | pin G | pin G |
 | DO | — | — | — |
 
-**Uji:** ketik `GET`, lalu cari `"fl":[...]` di baris yang muncul. Urutan angkanya: Kiri, Depan, Kanan.
+VCC dan GND memakai kabel female–female (pin sensor dan pin papan sama-sama jantan), AO memakai female–male.
+
+**Uji:** papan ekstensi harus ikut menyala (misalnya lewat USB ESP32), karena sensor mendapat daya dari situ.
+Ketik `GET`, lalu cari `"fl":[...]` di baris yang muncul. Urutan angkanya: Kiri, Depan, Kanan.
 
 - Tanpa api, angkanya besar (biasanya ratusan sampai mendekati 1023, tergantung cahaya ruangan).
 - Nyalakan korek ±30 cm di depan tiap sensor bergantian: angka sensor itulah yang paling turun. Kalau
@@ -210,8 +223,9 @@ Catatan:
 
 ## 5. Sensor gas MQ-2
 
-1. **VCC → 5 V dari buck** (pemanas MQ-2 memakan ±150 mA, terlalu berat untuk pin 5V Uno), **GND → GND
-   bersama**, **AO → A3**. DO dibiarkan kosong.
+1. **VCC → 5 V dari buck** (pemanas MQ-2 memakan ±150 mA). Kalau belum ada buck, boleh dari pin V papan
+   ekstensi, asal papan diberi daya dari baterai lewat jack DC, bukan USB. **GND → pin G papan ekstensi**,
+   **AO → A3** Uno. DO dibiarkan kosong.
 2. Nyalakan. Sensor akan terasa hangat, itu normal. 20 detik pertama setelah Uno menyala, firmware
    menganggap MQ-2 masih pemanasan dan belum memberi alarm. Untuk pemakaian pertama, biarkan menyala beberapa
    jam (kalau bisa semalam) supaya pembacaannya stabil.
@@ -228,7 +242,11 @@ mode otomatis hanya sensor api.
 
 ## 6. Servo nozzle
 
-1. Servo: kabel **oranye/kuning (sinyal) → D11**, **merah → 5 V dari buck**, **coklat/hitam → GND bersama**.
+1. Servo: kabel **oranye/kuning (sinyal) → D11 Uno**, **merah → 5 V dari buck**, **coklat/hitam → pin G papan
+   ekstensi**. Belum ada buck? Merah boleh ke pin V papan ekstensi, asal papan diberi daya dari baterai lewat
+   jack DC; kalau ESP32 restart setiap servo bergerak, pindahkan ke buck.
+   **Jangan tancapkan konektor servo langsung ke satu baris G-V-S** papan ekstensi: kabel sinyalnya akan masuk
+   ke GPIO ESP32, bukan ke Uno. Pisahkan ketiga kabelnya dengan kabel jumper.
 2. Nyalakan. Firmware langsung menggerakkan servo ke **90°**.
 3. Sekarang **pasang lengan servo** sehingga nozzle menghadap **lurus ke depan**.
 4. Uji: `MODE M`, lalu `NOZ 40`, `NOZ 140`, dan `NOZ 90`. Nozzle harus menoleh ke satu sisi, ke sisi lain, lalu
@@ -288,18 +306,25 @@ Dioda 1N4007 melintang di kabel pompa: sisi bergaris (katoda) ke (+), sisi lain 
 ESP32 hanya butuh **3 kabel** ke Uno. Semua sensor, servo, dan L298N tetap ke Uno, bukan ke ESP32.
 
 ```
-Uno D1 (TX) ──[1 kΩ]──┬──► ESP32 GPIO16 (RX2)   di papan ekstensi: pin S berlabel 16
+Uno D1 (TX) ──[1 kΩ]──┬──► pin S 16 papan ekstensi (GPIO16 / RX2)
                       [2 kΩ]
-                       └── rel − (GND)
-Uno D0 (RX) ◄──────────── ESP32 GPIO17 (TX2)   di papan ekstensi: pin S berlabel 17
-rel − (GND) ───────────── GND ESP32            di papan ekstensi: pin G mana saja
+                       └──► pin G papan ekstensi
+Uno D0 (RX) ◄──────────── pin S 17 papan ekstensi (GPIO17 / TX2)
+Uno GND ───────────────── pin G papan ekstensi (sudah dari langkah 2)
 ```
 
-- Di papan ekstensi, cari label **16** dan **17** (kadang ditulis RX2/TX2, IO16/IO17, atau G16/G17). Kalau
-  tiap GPIO punya tiga pin berjejer **G V S**, kabel sinyal masuk ke **S** dan GND ke **G**. Pin **V** tidak
-  dipakai, dan jangan disambung ke 5V Uno.
-- Dua resistor dipasang di breadboard. Tidak punya 2 kΩ? Pakai dua 1 kΩ yang diseri. Jangan menyambung D1
-  langsung ke GPIO16: ESP32 bekerja di 3,3 V, sinyal 5 V dari Uno bisa merusaknya pelan-pelan.
+- Di papan ekstensi, cari label **16** dan **17** (kadang ditulis RX2/TX2, IO16/IO17, atau G16/G17). Kabel
+  sinyal masuk ke pin **S** di baris itu.
+- **Kabel pembagi tanpa breadboard.** Buat sekali saja: potong satu kabel jumper male–female di tengah, lalu
+  solder resistor 1 kΩ di antara kedua potongannya (ujung male ke D1 Uno, ujung female ke pin S 16). Di
+  sambungan antara resistor 1 kΩ dan ujung female, solder satu kaki resistor 2 kΩ. Kaki lainnya disolder ke
+  potongan kabel berujung female untuk pin G. Bungkus semua sambungan dengan isolasi atau heat-shrink.
+  Hasilnya satu kabel bercabang tiga: D1, S16, dan G.
+- Belum bisa menyolder? Untuk uji sebentar, kaki resistor boleh dililit kencang lalu dibungkus isolasi, tapi
+  sambungan seperti itu mudah lepas kalau robot bergetar. Pilihan lain tanpa solder: modul *logic level
+  converter* 5V–3,3V.
+- Tidak punya 2 kΩ? Pakai dua 1 kΩ yang diseri. Jangan menyambung D1 langsung ke GPIO16: ESP32 bekerja di
+  3,3 V, sinyal 5 V dari Uno bisa merusaknya pelan-pelan.
 - Daya ESP32: saat uji cukup kabel USB ke laptop. Di robot, lewat jack DC papan ekstensi dari baterai 2S
   (langkah 2, nomor 5) atau 5V dari buck ke pin 5V papan.
 
@@ -394,6 +419,8 @@ Lalu di lantai:
 | Roda cuma berdengung, tidak berputar | PWM terlalu kecil untuk beban robot: `SPD 255`, lalu naikkan `MIN_PWM` di sketch |
 | Robot bergerak sendiri padahal tidak ada api | cahaya lampu/matahari terbaca sebagai api: jauhi jendela, atau **turunkan** `FLAME_WARN` |
 | Api lurus di depan, tapi robot malah berbelok ke kanan | `FLAME_COUNT` masih `2`, sehingga sensor Depan di A1 dibaca sebagai Kanan. Ubah jadi `3` lalu upload ulang |
+| Ketiga angka sensor api 0, robot mengira ada api besar | papan ekstensi belum menyala (sensor mendapat daya dari pin V-nya), atau kabel VCC sensor lepas |
+| Angka sensor api tidak pernah di atas ±700 walau tidak ada api | pin V papan ekstensi masih 3,3 V: pindahkan jumpernya ke 5V |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
 | Robot menabrak lilin | `FLAME_DANGER` terlalu kecil, naikkan |
 | Relay langsung menyala begitu robot dinyalakan | `PUMP_ACTIVE_HIGH` terbalik |
