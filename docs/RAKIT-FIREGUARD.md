@@ -15,10 +15,10 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 - Chassis 4WD + 4 motor DC TT + roda
 - 1 modul L298N
 - 2 baterai 18650
-- 2 sensor api IR (modul 4 pin: VCC, GND, DO, AO)
+- 3 sensor api IR (modul 4 pin: VCC, GND, DO, AO)
 - 1 sensor gas MQ-2 (boleh 2)
 - Arduino Uno
-- ESP32 (ESP extension)
+- ESP32 DevKit yang ditancapkan ke papan ekstensinya (ESP extension)
 - ESP32-CAM
 - 1 mini servo (SG90 / MG90S), untuk mengarahkan nozzle
 
@@ -36,6 +36,9 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 | Dioda 1N4007 | pelindung kontak relay dari lonjakan tegangan pompa |
 | Resistor 1 kΩ dan 2 kΩ | menurunkan tegangan sinyal Uno → ESP32 |
 | Kapasitor elektrolit 470 µF 16 V | penstabil daya ESP32-CAM |
+| Kabel jumper female–female dan female–male | pin sensor dan pin papan ekstensi sama-sama jantan, jadi butuh ujung female |
+| Colokan DC jantan 5,5 mm dengan terminal sekrup | memberi daya papan ekstensi ESP32 dari baterai lewat jack DC-nya |
+| (opsional) Breadboard kecil | tempat membagi 5V/GND dan memasang resistor. Tanpa breadboard, pakai pin V/G papan ekstensi ESP32 (langkah 2) |
 | Kabel jumper, terminal, baut-spacer, lem tembak, isolasi, cable tie | perakitan |
 | Adaptor USB-TTL atau papan ESP32-CAM-MB | upload ke ESP32-CAM |
 | (opsional) 2 resistor 10 kΩ | mengukur baterai |
@@ -54,8 +57,9 @@ Lihat robot dari atas:
 
 ```
                           DEPAN
-     [Api Kiri]      nozzle di servo      [Api Kanan]
-          \            ESP32-CAM             /
+     [Api Kiri]        [Api Depan]        [Api Kanan]
+          \          nozzle + servo         /
+           \           ESP32-CAM           /
       ┌───────────────────────────────────────┐
       │(roda)                           (roda)│
       │      Uno · L298N · ESP32 · buck ·     │  ← dek atas
@@ -76,9 +80,14 @@ Lihat robot dari atas:
 3. **Buat nozzle.** Masukkan pompa ke tangki, sambungkan selang, lalu ujung selang dijepit/dilem ke lengan
    servo. Ujung selang yang dipersempit (pakai sedotan kaku atau ujung pulpen bekas) membuat semprotan lebih
    jauh. Servo dipasang di depan tengah. **Lengan servo (horn) jangan dipasang dulu**, nanti di langkah 6.
-4. **Pasang dua sensor api** di sudut depan kiri dan kanan, setinggi ±5–10 cm dari lantai (kira-kira setinggi
-   api lilin). Hadapkan ke depan dan sedikit serong ke luar (±20–30°), supaya api yang lurus di depan
-   terlihat oleh keduanya. Pastikan tidak tertutup selang atau nozzle.
+4. **Pasang tiga sensor api** setinggi ±5–10 cm dari lantai (kira-kira setinggi api lilin):
+   - **Depan** di tengah, menghadap lurus ke depan. Boleh sedikit di bawah atau di samping nozzle, asal tidak
+     terhalang.
+   - **Kiri** dan **Kanan** di sudut depan, serong ke luar ±30°.
+
+   Dengan susunan ini, api yang lurus di depan paling kuat terbaca sensor Depan sehingga robot maju, sedangkan
+   api di samping terbaca sensor Kiri atau Kanan sehingga robot berbelok ke arahnya. Pastikan ketiganya tidak
+   tertutup selang atau nozzle.
 5. **MQ-2** di bagian paling atas (asap naik ke atas), jauh dari arah semprotan air.
 6. **ESP32-CAM** di depan, sedikit lebih tinggi dari nozzle, menghadap ke depan. Beri pelindung kecil supaya
    tidak terkena cipratan.
@@ -100,7 +109,20 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 3. Sambungkan baterai ke **input buck converter saja dulu**. Nyalakan, ukur output buck, lalu putar trimpot
    sampai **5,0–5,1 V**. Matikan lagi. Langkah ini wajib: buck baru biasanya keluar tegangan sembarang dan bisa
    merusak ESP32.
-4. Siapkan "jalur GND bersama" (satu terminal atau titik solder) untuk semua GND.
+4. **5V dan GND untuk sensor: pakai pin V dan G di papan ekstensi ESP32.** Uno hanya punya satu pin 5V, jadi tidak
+   cukup untuk banyak sensor. Di papan ekstensi, tiap GPIO punya tiga pin berjejer **G V S**. Semua pin **G**
+   saling tersambung (GND), begitu juga semua pin **V**. Jadi pin V dan G dari baris mana saja boleh dipakai
+   untuk daya sensor, **asal pin S di baris itu dibiarkan kosong** (pin S adalah GPIO ESP32).
+   - Pindahkan jumper pilihan tegangan pin V ke **5V**, nyalakan papan, lalu ukur antara pin V dan G: harus
+     ±4,7–5,2 V. Ini penting: kalau V hanya 3,3 V, angka sensor api ikut turun dan robot mengira selalu ada api.
+   - Sambungkan GND Uno, GND L298N, dan GND buck masing-masing ke satu pin G papan ekstensi, supaya semua GND
+     menyatu.
+   - Jangan menyambung pin V papan ke pin 5V Uno: dua regulator yang disatukan bisa saling melawan.
+   - Kalau punya breadboard kecil, itu juga boleh dipakai untuk membagi 5V dan GND.
+5. **Daya papan ekstensi:** saat uji cukup lewat kabel USB ESP32. Di robot, lewat jack DC papan dari baterai 2S
+   (cek tulisan di dekatnya; banyak yang menerima 6,5–16 V) memakai colokan DC jantan bersekrup, atau 5V dari
+   buck ke pin 5V papan. Uno dan papan ekstensi sebaiknya menyala bersamaan dari saklar yang sama: kalau papan
+   ekstensi mati, sensor api tidak dapat daya, angkanya jadi 0, dan itu terbaca seperti api besar.
 
 ---
 
@@ -164,23 +186,29 @@ Baterai 2S (−) ────────────┴── GND semua modul (
 
 ---
 
-## 4. Dua sensor api
+## 4. Tiga sensor api
 
-Setiap modul punya 4 pin. Yang dipakai **AO** (analog), DO dibiarkan kosong.
+Setiap modul punya 4 pin. Yang dipakai **AO** (analog), DO dibiarkan kosong. AO masuk ke Uno, sedangkan VCC
+dan GND diambil dari pin V dan G papan ekstensi ESP32 (langkah 2, nomor 4).
 
-| Pin modul | Sensor Kiri | Sensor Kanan |
-|---|---|---|
-| AO | A0 | A1 |
-| VCC | 5V Uno | 5V Uno |
-| GND | GND | GND |
-| DO | — | — |
+| Pin modul | Sensor Kiri | Sensor Depan | Sensor Kanan |
+|---|---|---|---|
+| AO | Uno A0 | Uno A1 | Uno A2 |
+| VCC | pin V papan ekstensi | pin V | pin V |
+| GND | pin G papan ekstensi | pin G | pin G |
+| DO | — | — | — |
 
-**Uji:** ketik `GET`, lalu cari `"fl":[...]` di baris yang muncul. Angka pertama = Kiri, kedua = Kanan.
+VCC dan GND memakai kabel female–female (pin sensor dan pin papan sama-sama jantan), AO memakai female–male.
+
+**Uji:** papan ekstensi harus ikut menyala (misalnya lewat USB ESP32), karena sensor mendapat daya dari situ.
+Ketik `GET`, lalu cari `"fl":[...]` di baris yang muncul. Urutan angkanya: Kiri, Depan, Kanan.
 
 - Tanpa api, angkanya besar (biasanya ratusan sampai mendekati 1023, tergantung cahaya ruangan).
-- Nyalakan korek ±30 cm di depan sensor kiri: angka pertama harus turun. Pindah ke kanan: angka kedua yang turun.
-  Kalau tertukar, tukar kabel AO-nya.
+- Nyalakan korek ±30 cm di depan tiap sensor bergantian: angka sensor itulah yang paling turun. Kalau
+  urutannya tertukar, tukar kabel AO-nya.
 - `"fs":[...]` adalah statusnya: `0` aman, `1` waspada, `2` api.
+- Pesan pembuka di Serial Monitor harus menulis `(3 sensor api, ...)`. Kalau tertulis 2, berarti firmware di
+  Uno masih versi lama atau `FLAME_COUNT` di sketch masih `2`.
 
 Catatan:
 
@@ -188,15 +216,16 @@ Catatan:
   mengubah angka AO. Karena firmware membaca AO, kalibrasi dilakukan lewat angka `FLAME_WARN` dan
   `FLAME_DANGER` di sketch (langkah 11).
 - Sensor ini juga peka sinar matahari dan lampu pijar. Uji dan pakai robot jauh dari jendela.
-- Kalau Anda punya **3 sensor**, urutannya menjadi Kiri **A0**, Depan **A1**, Kanan **A2** (kabel Kanan pindah ke
-  A2), lalu ubah `FLAME_COUNT` jadi `3`. Dashboard menyesuaikan sendiri.
+- Kalau hanya memakai **2 sensor**, ubah `FLAME_COUNT` jadi `2`, lalu pasang Kiri di **A0** dan Kanan di
+  **A1**. Dashboard menyesuaikan sendiri.
 
 ---
 
 ## 5. Sensor gas MQ-2
 
-1. **VCC → 5 V dari buck** (pemanas MQ-2 memakan ±150 mA, terlalu berat untuk pin 5V Uno), **GND → GND
-   bersama**, **AO → A3**. DO dibiarkan kosong.
+1. **VCC → 5 V dari buck** (pemanas MQ-2 memakan ±150 mA). Kalau belum ada buck, boleh dari pin V papan
+   ekstensi, asal papan diberi daya dari baterai lewat jack DC, bukan USB. **GND → pin G papan ekstensi**,
+   **AO → A3** Uno. DO dibiarkan kosong.
 2. Nyalakan. Sensor akan terasa hangat, itu normal. 20 detik pertama setelah Uno menyala, firmware
    menganggap MQ-2 masih pemanasan dan belum memberi alarm. Untuk pemakaian pertama, biarkan menyala beberapa
    jam (kalau bisa semalam) supaya pembacaannya stabil.
@@ -213,7 +242,11 @@ mode otomatis hanya sensor api.
 
 ## 6. Servo nozzle
 
-1. Servo: kabel **oranye/kuning (sinyal) → D11**, **merah → 5 V dari buck**, **coklat/hitam → GND bersama**.
+1. Servo: kabel **oranye/kuning (sinyal) → D11 Uno**, **merah → 5 V dari buck**, **coklat/hitam → pin G papan
+   ekstensi**. Belum ada buck? Merah boleh ke pin V papan ekstensi, asal papan diberi daya dari baterai lewat
+   jack DC; kalau ESP32 restart setiap servo bergerak, pindahkan ke buck.
+   **Jangan tancapkan konektor servo langsung ke satu baris G-V-S** papan ekstensi: kabel sinyalnya akan masuk
+   ke GPIO ESP32, bukan ke Uno. Pisahkan ketiga kabelnya dengan kabel jumper.
 2. Nyalakan. Firmware langsung menggerakkan servo ke **90°**.
 3. Sekarang **pasang lengan servo** sehingga nozzle menghadap **lurus ke depan**.
 4. Uji: `MODE M`, lalu `NOZ 40`, `NOZ 140`, dan `NOZ 90`. Nozzle harus menoleh ke satu sisi, ke sisi lain, lalu
@@ -270,18 +303,63 @@ Dioda 1N4007 melintang di kabel pompa: sisi bergaris (katoda) ke (+), sisi lain 
 
 ## 8. ESP32 (jembatan WiFi)
 
+ESP32 hanya butuh **3 kabel** ke Uno. Semua sensor, servo, dan L298N tetap ke Uno, bukan ke ESP32.
+
 ```
-Uno TX (D1) ──[1 kΩ]──┬──► ESP32 GPIO16 (RX2)
+Uno D1 (TX) ──[1 kΩ]──┬──► pin S 16 papan ekstensi (GPIO16 / RX2)
                       [2 kΩ]
-                       └── GND
-Uno RX (D0) ◄──────────── ESP32 GPIO17 (TX2)
-ESP32 VIN (5V) ◄───────── buck 5 V
-ESP32 GND ─────────────── GND bersama
+                       └──► pin G papan ekstensi
+Uno D0 (RX) ◄──────────── pin S 17 papan ekstensi (GPIO17 / TX2)
+Uno GND ───────────────── pin G papan ekstensi (sudah dari langkah 2)
 ```
 
+- Di papan ekstensi, cari label **16** dan **17** (kadang ditulis RX2/TX2, IO16/IO17, atau G16/G17). Kabel
+  sinyal masuk ke pin **S** di baris itu.
+- **Kabel pembagi tanpa breadboard.** Buat sekali saja: potong satu kabel jumper male–female di tengah, lalu
+  solder resistor 1 kΩ di antara kedua potongannya (ujung male ke D1 Uno, ujung female ke pin S 16). Di
+  sambungan antara resistor 1 kΩ dan ujung female, solder satu kaki resistor 2 kΩ. Kaki lainnya disolder ke
+  potongan kabel berujung female untuk pin G. Bungkus semua sambungan dengan isolasi atau heat-shrink.
+  Hasilnya satu kabel bercabang tiga: D1, S16, dan G.
+- Belum bisa menyolder? Untuk uji sebentar, kaki resistor boleh dililit kencang lalu dibungkus isolasi, tapi
+  sambungan seperti itu mudah lepas kalau robot bergetar. Pilihan lain tanpa solder: modul *logic level
+  converter* 5V–3,3V.
+- Tidak punya 2 kΩ? Pakai dua 1 kΩ yang diseri. Jangan menyambung D1 langsung ke GPIO16: ESP32 bekerja di
+  3,3 V, sinyal 5 V dari Uno bisa merusaknya pelan-pelan.
+- Daya ESP32: saat uji cukup kabel USB ke laptop. Di robot, lewat jack DC papan ekstensi dari baterai 2S
+  (langkah 2, nomor 5) atau 5V dari buck ke pin 5V papan.
+
 1. Buka `firmware/esp_bridge/esp_bridge.ino`. `ROBOT_NAME` sudah `"fireguard"`, jadi cukup ubah
-   `WIFI_SSID` dan `WIFI_PASS` sesuai WiFi/hotspot yang akan dipakai.
-2. Pasang library **WebSockets** (oleh Markus Sattler) lewat Library Manager, pilih board ESP32, lalu upload lewat USB ESP32.
+   `WIFI_SSID` dan `WIFI_PASS` sesuai WiFi/hotspot yang akan dipakai. Setelah diisi password, jangan commit
+   file ini ke GitHub.
+2. **Upload ke ESP32** (Arduino IDE 2):
+   - Sekali saja: File → Preferences → *Additional boards manager URLs* diisi
+     `https://espressif.github.io/arduino-esp32/package_esp32_index.json`. Lalu di Boards Manager pasang
+     **esp32 by Espressif Systems**, dan di Library Manager pasang **WebSockets** oleh **Markus Sattler** (bukan
+     library lain yang namanya mirip). Paket **Arduino ESP32 Boards** (oleh Arduino) hanya untuk Arduino Nano
+     ESP32 dan tidak dipakai di sini.
+   - Kompilasi pertama untuk ESP32 bisa makan 5–10 menit karena seluruh core ESP32 ikut dibangun; berikutnya jauh
+     lebih cepat. Supaya terlihat prosesnya, centang File → Preferences → *Show verbose output during: compile*.
+     Tunggu sampai muncul `Sketch uses ... bytes` dan **jangan klik Cancel** di tengah jalan: file yang baru
+     setengah ditulis bisa tertinggal di cache, lalu kompilasi berikutnya gagal dengan ratusan
+     `undefined reference`. Cara membereskannya ada di tabel *Kalau ada masalah* di bagian bawah.
+   - Colok kabel USB ke **port micro-USB di papan ESP32 itu sendiri** (di antara tombol EN dan BOOT), bukan ke
+     port USB papan ekstensi: port papan ekstensi biasanya hanya untuk daya. Pakai kabel data, bukan kabel yang
+     cuma untuk mengecas.
+   - Pilih board **ESP32 Dev Module** dan port COM yang muncul saat ESP32 dicolok. Port bernama *Standard Serial
+     over Bluetooth link* milik Bluetooth laptop, bukan ESP32. Kalau tidak ada port baru, buka Device Manager:
+     ESP32 yang drivernya belum terpasang muncul di *Other devices* bertanda kuning, misalnya
+     `CP2102 USB to UART Bridge Controller`. Untuk CP2102, unduh
+     [CP210x Universal Windows Driver](https://www.silabs.com/documents/public/software/CP210x_Universal_Windows_Driver.zip)
+     dan ekstrak ZIP-nya, lalu klik kanan perangkat tadi → *Update driver* → *Browse my computer for drivers* →
+     pilih folder hasil ekstrak. Untuk chip CH340, driver-nya *CH341SER* dari situs WCH.
+   - Klik Upload. Kalau berhenti di `Connecting....`, atau gagal dengan *Wrong boot mode* atau *Invalid head of
+     packet*, berarti ESP32 belum masuk mode upload. Banyak papan ESP32 murah gagal masuk mode ini sendiri, jadi
+     bantu dengan tombol: upload lagi, begitu muncul `Connecting....` tekan dan tahan **BOOT**, tekan **EN** sekali
+     sambil BOOT tetap ditahan, lalu lepas BOOT setelah muncul `Writing at ...`. Selesai upload, tekan EN sekali
+     supaya program barunya jalan. Masih gagal? Lepas kabel di pin TX0/RX0 ESP32 kalau ada, lalu Tools → Upload
+     Speed → 115200.
+   - WiFi yang dipakai harus 2,4 GHz. ESP32 tidak bisa tersambung ke WiFi 5 GHz; hotspot HP biasanya bisa
+     diatur ke 2,4 GHz.
 3. Buka Serial Monitor ESP32 (baud 115200). Catat alamat IP yang muncul, mis. `Tersambung. IP: 192.168.1.24`.
    Kalau WiFi gagal, ESP32 membuat WiFi sendiri bernama `fireguard-robot` (password `kopak1234`) dengan alamat `192.168.4.1`.
 4. Sambungkan kabel ke Uno sesuai gambar (pembagi tegangan 1k/2k **wajib** di jalur Uno TX → ESP32).
@@ -321,7 +399,7 @@ dekat robot ke api sebelum menyemprot.
 1. **Ukur jangkauan pompa.** Mode Manual, tahan tombol **Tahan untuk Menyemprotkan Air** di dashboard (ujung
    selang ke ember). Lihat seberapa jauh air sampai, misalnya 40 cm. Jarak semprot yang aman kira-kira
    setengah sampai dua pertiganya, misalnya 25 cm.
-2. Nyalakan lilin di atas piring logam, taruh di depan robot (di tengah, di antara dua sensor) sejauh jarak
+2. Nyalakan lilin di atas piring logam, taruh di depan robot (lurus di depan sensor Depan) sejauh jarak
    semprot tadi. Lihat angka sensor api (di kartu Deteksi Api, atau `GET` di Serial Monitor). Ambil angka yang
    paling kecil, misalnya 360. **`FLAME_DANGER` = angka itu + ±30**, jadi 390.
 3. Mundurkan lilin ke jarak terjauh tempat robot sebaiknya mulai mencari api, misalnya 1 m. Catat angkanya,
@@ -369,6 +447,9 @@ Lalu di lantai:
 | Muncul `# Roda diperintah berputar...` tapi roda diam | perintah sudah sampai ke Uno; cek kabel L298N, GND bersama, dan baterai dengan `tes_motor` |
 | Roda cuma berdengung, tidak berputar | PWM terlalu kecil untuk beban robot: `SPD 255`, lalu naikkan `MIN_PWM` di sketch |
 | Robot bergerak sendiri padahal tidak ada api | cahaya lampu/matahari terbaca sebagai api: jauhi jendela, atau **turunkan** `FLAME_WARN` |
+| Api lurus di depan, tapi robot malah berbelok ke kanan | `FLAME_COUNT` masih `2`, sehingga sensor Depan di A1 dibaca sebagai Kanan. Ubah jadi `3` lalu upload ulang |
+| Ketiga angka sensor api 0, robot mengira ada api besar | papan ekstensi belum menyala (sensor mendapat daya dari pin V-nya), atau kabel VCC sensor lepas |
+| Angka sensor api tidak pernah di atas ±700 walau tidak ada api | pin V papan ekstensi masih 3,3 V: pindahkan jumpernya ke 5V |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
 | Robot menabrak lilin | `FLAME_DANGER` terlalu kecil, naikkan |
 | Relay langsung menyala begitu robot dinyalakan | `PUMP_ACTIVE_HIGH` terbalik |
@@ -379,6 +460,10 @@ Lalu di lantai:
 | Nilai gas tinggi terus / naik-turun | MQ-2 baru, belum dipanaskan lama; atur ulang `GAS_WARN` / `GAS_DANGER` |
 | Motor roda selalu kencang | jumper ENA/ENB di L298N belum dicabut |
 | Kamera sering putus / "Brownout" | daya ESP32-CAM kurang: kapasitor, kabel lebih pendek, buck lebih kuat |
+| Kompilasi ESP32 gagal: ratusan `undefined reference` (`String`, `millis`, `yield`), di akhir `final link failed` atau `unsupported binding` | cache kompilasi rusak, biasanya karena kompilasi sebelumnya dihentikan. Tutup Arduino IDE, buka `%LOCALAPPDATA%\arduino` lewat Win+R, hapus folder `sketches` dan `cores` (folder `Arduino15` jangan), lalu Verify lagi sampai selesai. Masih gagal dengan pesan yang sama: di Boards Manager pasang esp32 versi 3.x yang paling baru, hapus kedua folder tadi sekali lagi, lalu Verify |
+| Pojok kanan bawah Arduino IDE menulis `on COMx [not connected]`, padahal lampu ESP32 menyala | laptop tidak melihat ESP32 di port itu. Buka Tools → Port sebelum dan sesudah ESP32 dicolok, lalu pilih port yang baru muncul. Tidak ada port baru: buka Device Manager lalu colok ESP32. Muncul di *Other devices* bertanda kuning = driver belum terpasang (CP2102 → driver CP210x dari Silicon Labs, CH340 → CH341SER dari WCH, CH9102 → CH343SER dari WCH). Daftar tidak berubah sama sekali = kabelnya cuma kabel cas atau port USB laptop bermasalah: ganti kabel dan port |
+| Upload ESP32 gagal: `Could not open COMx, the port is busy or doesn't exist`, sering disertai `semaphore timeout` | cabut kabel ESP32 lalu buka Tools → Port. Kalau COMx masih ada, port itu bukan ESP32 (sering port Bluetooth laptop): pilih port yang muncul saat ESP32 dicolok. Kalau COMx ikut hilang: tutup program lain yang memakai port, colok ke port USB lain tanpa hub, Upload Speed 115200, ganti kabel, atau pasang ulang driver |
+| Upload ESP32 gagal setelah `Connecting....`: `Failed to connect to ESP32`, `Invalid head of packet`, atau `Wrong boot mode` | ESP32 belum masuk mode upload. Upload lagi, begitu muncul `Connecting....` tahan BOOT, tekan EN sekali sambil BOOT tetap ditahan, lepas BOOT setelah muncul `Writing at ...`. Kabel dari Uno harus di pin 16 dan 17, bukan RX0/TX0; untuk upload pertama lebih aman dicabut dulu |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, jauhkan dari roda, dan pastikan tidak ada kabel atau
 sambungan terbuka di bawah jalur selang air.

@@ -274,6 +274,7 @@ ESP32 GND ─────────────── GND bersama
    - `ROBOT_NAME` → `"ecobot"`
    - `WIFI_SSID` dan `WIFI_PASS` → WiFi/hotspot yang akan dipakai
 2. Pasang library **WebSockets** (oleh Markus Sattler) lewat Library Manager, pilih board ESP32, lalu upload lewat USB ESP32.
+   Langkah rincinya (paket board ESP32, port, tombol BOOT) ada di [RAKIT-FIREGUARD.md](RAKIT-FIREGUARD.md) bagian 8, nomor 2.
 3. Buka Serial Monitor ESP32 (baud 115200). Catat alamat IP yang muncul, mis. `Tersambung. IP: 192.168.1.23`.
    Kalau WiFi gagal, ESP32 membuat WiFi sendiri bernama `ecobot-robot` (password `kopak1234`) dengan alamat `192.168.4.1`.
 4. Sambungkan kabel ke Uno sesuai gambar (pembagi tegangan 1k/2k **wajib** di jalur Uno TX → ESP32).

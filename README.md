@@ -77,7 +77,8 @@ Beberapa hal di daftar komponen tidak sepenuhnya jelas bagi saya. Ini yang saya 
 
 | Hal | Yang saya asumsikan | Kalau beda |
 |---|---|---|
-| Jumlah sensor api | **2** (Kiri, Kanan), karena "berjumlah 2" | `FLAME_COUNT 3` di sketch; dashboard ikut sendiri |
+| Jumlah sensor api | **3** (Kiri A0, Depan A1, Kanan A2) | `FLAME_COUNT 2` di sketch kalau hanya dua (Kiri A0, Kanan A1); dashboard ikut sendiri |
+| Sensor ultrasonik FireGuard | **tidak ada**; FireGuard berhenti mendekat berdasarkan kekuatan api (`FLAME_DANGER`) | 6 HC-SR04 hanya untuk EcoBot |
 | Jumlah MQ-2 | **1** | `GAS_COUNT 2` |
 | "ESP extension" | modul **ESP32** (atau ESP8266) sebagai jembatan WiFi ke Uno; ESP32-CAM khusus kamera | sketch bridge jalan di ESP32 dan ESP8266 |
 | Driver motor roda | 1 modul L298N per robot: channel A roda kiri, channel B roda kanan | pin di `docs/WIRING.md` bagian 2 |
