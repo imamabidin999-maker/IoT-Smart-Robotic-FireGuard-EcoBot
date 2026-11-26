@@ -278,7 +278,10 @@ Kerjakan dua tahap: relay dulu tanpa pompa, baru pompanya.
    pin V papan ekstensi, karena koil relay cuma memakan ±70 mA.
 2. Banyak modul relay 1 kanal (terutama yang memakai optocoupler) **aktif-LOW**: relay menyala kalau IN diberi
    LOW. Untuk modul seperti itu, ubah `PUMP_ACTIVE_HIGH` jadi `0` di sketch, lalu upload. Kalau modul Anda punya
-   jumper pilihan **H/L**, pasang di **L**. Belum yakin modulnya jenis apa? Langkah 3 akan menunjukkannya.
+   jumper pilihan **H/L**, pasang di **L**. Modul biru tanpa optocoupler (relay SONGLE SRD-05VDC-SL-C, pin
+   IN/GND/VCC) dijual dalam versi LOW dan HIGH yang bentuknya hampir sama. Cara cepat mengeceknya: sambungkan VCC
+   dan GND saja, lalu tempelkan kabel IN ke GND. Kalau relay berbunyi klik, modulnya aktif-LOW (`0`). Kalau
+   tidak, tempelkan IN ke 5V; kalau berbunyi klik, modulnya aktif-HIGH (`1`). Langkah 3 juga menunjukkannya.
 3. Nyalakan robot. **LED relay harus mati dan tidak ada bunyi klik.** Kalau relay langsung menyala, berarti
    pengaturan tadi terbalik: ganti `PUMP_ACTIVE_HIGH` ke nilai sebaliknya dan upload ulang.
 4. Ketik `MODE M`, lalu `PUMP 1`. Relay harus berbunyi klik (menyala), lalu ±0,6 detik kemudian klik lagi
@@ -302,7 +305,10 @@ Dioda 1N4007 melintang di kabel pompa: sisi bergaris (katoda) ke (+), sisi lain 
 ```
 
 1. Sambungkan seperti gambar. Pompa ada di **NO** (normally open), bukan NC, supaya pompa mati saat relay
-   tidak aktif.
+   tidak aktif. Di modul 1 kanal, terminal sekrup **tengah adalah COM**. Tulisan NO/NC biasanya ada di PCB
+   dekat terminal, kadang di sisi bawah papan. Kalau tidak ada, cek dengan multimeter mode bunyi saat relay
+   mati: COM tersambung ke NC, bukan ke NO. Dioda kecil di modul relay hanya melindungi koil relay, jadi dioda
+   1N4007 di kaki pompa tetap perlu.
 2. **Pompa harus terendam air sebelum dinyalakan.** Pompa yang berputar kering cepat rusak.
 3. Uji pertama di luar robot atau di atas ember: ujung selang diarahkan ke ember, lalu ketik `PUMP 1` beberapa
    kali berturut-turut. Air harus menyembur.
