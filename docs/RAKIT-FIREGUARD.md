@@ -381,9 +381,13 @@ Uno GND ───────────────── pin G papan ekstensi
 
 ## 10. Sambungkan ke dashboard
 
-1. Buka `fireguard/index.html` di laptop/HP yang tersambung ke WiFi yang sama.
-2. Klik ikon roda gigi → mode **Langsung** → alamat robot `fireguard.local` atau IP ESP32 → alamat kamera
-   `fireguard-cam.local` atau IP ESP32-CAM → **Simpan & Sambungkan**. Di HP Android pakai IP.
+1. Buka `fireguard/index.html` di laptop/HP yang tersambung ke WiFi yang sama. Untuk lomba atau demo, pakai
+   hotspot HP sendiri: WiFi tempat acara belum tentu mengizinkan sesama perangkat saling terhubung, dan IP
+   robot bisa dilihat langsung di daftar perangkat hotspot (namanya `fireguard`).
+2. Klik ikon roda gigi → mode **Langsung** → alamat robot: IP ESP32 dari Serial Monitor (mis. `192.168.1.24`)
+   → alamat kamera: IP ESP32-CAM, atau kosongkan kalau kamera belum dipasang → **Simpan & Sambungkan**.
+   Alamat `fireguard.local` lebih praktis karena tidak berubah, tapi sering tidak jalan di HP Android, di
+   sebagian laptop Windows, dan di WiFi kampus. Kalau statusnya terus "Menyambung...", kembali pakai IP.
 3. Status di pojok kanan atas harus **Terhubung**, kartu **Deteksi Api** menampilkan angka, gas menampilkan
    "Pemanasan" sebentar, dan kamera tampil.
    - "Robot belum merespons": ESP32 tersambung tapi Uno diam. Cek kabel TX/RX dan pembagi tegangan.
@@ -464,6 +468,7 @@ Lalu di lantai:
 | Pojok kanan bawah Arduino IDE menulis `on COMx [not connected]`, padahal lampu ESP32 menyala | laptop tidak melihat ESP32 di port itu. Buka Tools → Port sebelum dan sesudah ESP32 dicolok, lalu pilih port yang baru muncul. Tidak ada port baru: buka Device Manager lalu colok ESP32. Muncul di *Other devices* bertanda kuning = driver belum terpasang (CP2102 → driver CP210x dari Silicon Labs, CH340 → CH341SER dari WCH, CH9102 → CH343SER dari WCH). Daftar tidak berubah sama sekali = kabelnya cuma kabel cas atau port USB laptop bermasalah: ganti kabel dan port |
 | Upload ESP32 gagal: `Could not open COMx, the port is busy or doesn't exist`, sering disertai `semaphore timeout` | cabut kabel ESP32 lalu buka Tools → Port. Kalau COMx masih ada, port itu bukan ESP32 (sering port Bluetooth laptop): pilih port yang muncul saat ESP32 dicolok. Kalau COMx ikut hilang: tutup program lain yang memakai port, colok ke port USB lain tanpa hub, Upload Speed 115200, ganti kabel, atau pasang ulang driver |
 | Upload ESP32 gagal setelah `Connecting....`: `Failed to connect to ESP32`, `Invalid head of packet`, atau `Wrong boot mode` | ESP32 belum masuk mode upload. Upload lagi, begitu muncul `Connecting....` tahan BOOT, tekan EN sekali sambil BOOT tetap ditahan, lepas BOOT setelah muncul `Writing at ...`. Kabel dari Uno harus di pin 16 dan 17, bukan RX0/TX0; untuk upload pertama lebih aman dicabut dulu. Masih gagal, dan Serial Monitor (115200) penuh kotak-kotak yang tetap muncul walau EN ditahan: papan ESP32-nya kemungkinan rusak, coba papan lain |
+| Dashboard terus "Menyambung..." dengan alamat `fireguard.local`, padahal dengan IP bisa | laptop/HP atau jaringannya tidak mendukung alamat `.local` (sering di Android, sebagian laptop Windows, dan WiFi kampus). Pakai IP dari Serial Monitor atau dari daftar perangkat di hotspot HP |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, jauhkan dari roda, dan pastikan tidak ada kabel atau
 sambungan terbuka di bawah jalur selang air.
