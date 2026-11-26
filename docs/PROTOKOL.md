@@ -123,7 +123,7 @@ Field yang sama di kedua robot:
 ### `bridge` — dikirim ESP saat klien tersambung dan saat `INFO`
 
 ```json
-{"t":"bridge","robot":"fireguard","fw":"1.0.0","ip":"192.168.1.20","rssi":-55,"mode":"sta"}
+{"t":"bridge","robot":"fireguard","fw":"1.1.0","ip":"192.168.1.20","rssi":-55,"mode":"sta"}
 ```
 
 ### `pong` — jawaban ESP untuk `PING`

@@ -108,8 +108,10 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    boleh, asal susunannya 2S2P (hasil ukurnya tetap 7,4–8,4 V). Kalau terukur 14–16,8 V, holder itu 4 seri.
    4 seri hanya boleh dipakai lewat buck: semua modul 5 V mengambil daya dari buck (Uno lewat pin 5V, papan
    ekstensi lewat pin V, pompa lewat COM relay), VIN Uno dan jack DC papan ekstensi tidak dipakai, L298N tetap
-   dari baterai, dan `BAT_CELLS` di firmware diisi `4` supaya PWM motor dibagi dua. Jangan sambungkan 4 seri
+   dari baterai, dan `BAT_CELLS` di firmware `4` supaya PWM motor dibagi dua. Jangan sambungkan 4 seri
    langsung ke VIN Uno, jack DC papan ekstensi (maksimal 16 V), atau pompa.
+   **Sketch bawaan memakai `BAT_CELLS 4`** (baterai robot tim). Untuk 2 sel seri, ubah jadi `2` di
+   `fireguard_uno.ino` dan `tes_motor.ino`; kalau lupa, roda hanya berputar setengah kecepatan.
 2. Pasang saklar di kabel + baterai.
 3. Sambungkan baterai ke **input buck converter saja dulu**. Nyalakan, ukur output buck, lalu putar trimpot
    sampai **5,0–5,1 V**. Matikan lagi. Langkah ini wajib: buck baru biasanya keluar tegangan sembarang dan bisa
@@ -155,7 +157,7 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    dengan urutan tetap, tanpa perlu mengetik apa pun, jadi masalah kabel dan daya bisa dipisahkan dari masalah
    perintah. Angkat robot, upload, nyalakan saklar baterai, lalu perhatikan roda. Buka Serial Monitor
    (baud 57600) kalau ingin melihat langkah yang sedang berjalan.
-   Sebelum upload, cek `BAT_CELLS` di bagian atas sketch: `2` untuk baterai 2 seri (7,4 V), `4` untuk 4 seri
+   Sebelum upload, cek `BAT_CELLS` di bagian atas sketch (bawaannya `4`): `2` untuk baterai 2 seri (7,4 V), `4` untuk 4 seri
    lewat buck (14,8 V). Samakan dengan `BAT_CELLS` di `fireguard_uno.ino`. Kalau baterainya 4 seri tapi angkanya
    masih `2`, motor TT kebagian hampir 15 V.
 
@@ -177,7 +179,7 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    - Arduino IDE → Serial Monitor, baud **57600**. Pilihan akhir baris apa saja boleh, huruf kecil juga boleh.
      Kalau yang muncul huruf acak, baud-nya belum 57600.
    - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya
-     `# FireGuard 1.3.0 siap (3 sensor api, 1 MQ-2), mode OTOMATIS` (jumlahnya mengikuti `FLAME_COUNT` dan `GAS_COUNT`).
+     `# FireGuard 1.3.0 siap (2 sensor api, 2 MQ-2), mode OTOMATIS` (jumlahnya mengikuti `FLAME_COUNT` dan `GAS_COUNT`).
      Baris `#` adalah pesan untuk Anda. Setelah itu baris JSON muncul 4× per detik, itu juga normal.
    - **Ketik `MODE M` dulu.** FireGuard selalu menyala dalam mode Otomatis (diam menunggu api), dan di mode
      itu perintah gerak dari luar diabaikan (Uno akan menulis `# Diabaikan: robot sedang mode OTOMATIS`).
@@ -216,8 +218,8 @@ Ketik `GET`, lalu cari `"fl":[...]` di baris yang muncul. Urutan angkanya: Kiri,
 - Nyalakan korek ±30 cm di depan tiap sensor bergantian: angka sensor itulah yang paling turun. Kalau
   urutannya tertukar, tukar kabel AO-nya.
 - `"fs":[...]` adalah statusnya: `0` aman, `1` waspada, `2` api.
-- Pesan pembuka di Serial Monitor harus menulis `(3 sensor api, ...)`. Kalau tertulis 2, berarti firmware di
-  Uno masih versi lama atau `FLAME_COUNT` di sketch masih `2`.
+- Dengan 3 sensor, pesan pembuka di Serial Monitor harus menulis `(3 sensor api, ...)`. Kalau tertulis 2,
+  `FLAME_COUNT` di sketch masih `2` (nilai bawaan) atau firmware di Uno belum di-upload ulang.
 
 Catatan:
 
@@ -225,8 +227,8 @@ Catatan:
   mengubah angka AO. Karena firmware membaca AO, kalibrasi dilakukan lewat angka `FLAME_WARN` dan
   `FLAME_DANGER` di sketch (langkah 11).
 - Sensor ini juga peka sinar matahari dan lampu pijar. Uji dan pakai robot jauh dari jendela.
-- Kalau hanya memakai **2 sensor**, ubah `FLAME_COUNT` jadi `2`, lalu pasang Kiri di **A0** dan Kanan di
-  **A1**. Dashboard menyesuaikan sendiri.
+- **Sketch bawaan memakai 2 sensor** (`FLAME_COUNT 2`, robot tim): Kiri di **A0**, Kanan di **A1**. Kalau
+  memasang 3 sensor seperti langkah di atas, ubah jadi `3`. Dashboard menyesuaikan sendiri.
 
 ---
 
@@ -242,7 +244,8 @@ Catatan:
    gas **tanpa dinyalakan** di dekat sensor: angkanya harus naik.
 4. Atur `GAS_WARN` sedikit di atas angka udara bersih (mis. udara bersih 180 → `GAS_WARN` sekitar 300) dan
    `GAS_DANGER` lebih tinggi lagi (mis. 500). Upload ulang.
-5. MQ-2 kedua (kalau ada): VCC dan GND sama seperti yang pertama, AO → **A4**, lalu ubah `GAS_COUNT` jadi `2`.
+5. MQ-2 kedua: VCC dan GND sama seperti yang pertama, AO → **A4**. Sketch bawaan sudah `GAS_COUNT 2`; kalau
+   hanya memasang satu MQ-2, ubah jadi `1`.
    Di dashboard, sensor di A3 tampil sebagai *MQ-2 #1* dan yang di A4 sebagai *MQ-2 #2*. Supaya gampang
    diingat, pasang MQ-2 kiri di A3 dan yang kanan di A4. Dua MQ-2 memakan ±300 mA, jadi ambil 5 V-nya dari
    buck, jangan dari pin V papan ekstensi yang juga menghidupi ESP32 dan sensor api. Buck belum terpasang?
@@ -284,12 +287,12 @@ Kerjakan dua tahap: relay dulu tanpa pompa, baru pompanya.
 1. Modul relay: **VCC ← 5 V buck**, **GND ← GND bersama**, **IN ← D4**. Belum ada buck? VCC relay boleh dari
    pin V papan ekstensi, karena koil relay cuma memakan ±70 mA.
 2. Banyak modul relay 1 kanal (terutama yang memakai optocoupler) **aktif-LOW**: relay menyala kalau IN diberi
-   LOW. Untuk modul seperti itu, ubah `PUMP_ACTIVE_HIGH` jadi `0` di sketch, lalu upload. Kalau modul Anda punya
+   LOW. Sketch bawaan sudah `PUMP_ACTIVE_HIGH 0` untuk modul seperti itu. Kalau modul Anda punya
    jumper pilihan **H/L**, pasang di **L**. Modul biru tanpa optocoupler (relay SONGLE SRD-05VDC-SL-C, pin
    IN/GND/VCC) dijual dalam versi LOW dan HIGH yang bentuknya hampir sama. Cara cepat mengeceknya: VCC ke 5V
    dan GND ke GND Uno (Uno cukup dari USB laptop), IN belum ke mana-mana, lalu tempelkan ujung kabel IN ke pin
-   GND Uno yang lain. Kalau relay berbunyi klik, modulnya aktif-LOW (`0`). Kalau diam, modulnya aktif-HIGH
-   (`1`, nilai bawaan). Langkah 3 akan memastikannya.
+   GND Uno yang lain. Kalau relay berbunyi klik, modulnya aktif-LOW (`0`, nilai bawaan). Kalau diam, modulnya
+   aktif-HIGH: ubah jadi `1` lalu upload. Langkah 3 akan memastikannya.
 3. Nyalakan robot. **LED relay harus mati dan tidak ada bunyi klik.** Kalau relay langsung menyala, berarti
    pengaturan tadi terbalik: ganti `PUMP_ACTIVE_HIGH` ke nilai sebaliknya dan upload ulang.
 4. Ketik `MODE M`, lalu `PUMP 1`. Relay harus berbunyi klik (menyala), lalu ±0,6 detik kemudian klik lagi
@@ -358,8 +361,10 @@ Uno GND ───────────────── pin G papan ekstensi
 - Daya ESP32: saat uji cukup kabel USB ke laptop. Di robot, lewat jack DC papan ekstensi dari baterai 2S
   (langkah 2, nomor 5) atau 5V dari buck ke pin 5V papan.
 
-1. Buka `firmware/esp_bridge/esp_bridge.ino`. `ROBOT_NAME` sudah `"fireguard"`, jadi cukup ubah
-   `WIFI_SSID` dan `WIFI_PASS` sesuai WiFi/hotspot yang akan dipakai. Setelah diisi password, jangan commit
+1. Buka `firmware/esp_bridge/esp_bridge.ino`. `ROBOT_NAME` sudah `"fireguard"`. Kalau `WIFI_SSID` dibiarkan
+   `"NAMA_WIFI"`, robot langsung membuat WiFi sendiri: nama `fireguard-robot`, password `kopak1234`, alamat robot
+   `192.168.4.1`. Ini paling praktis untuk demo karena tidak bergantung pada WiFi tempat acara. Kalau mau
+   memakai WiFi rumah atau hotspot, isi `WIFI_SSID` dan `WIFI_PASS`; setelah diisi password, jangan commit
    file ini ke GitHub.
 2. **Upload ke ESP32** (Arduino IDE 2):
    - Sekali saja: File → Preferences → *Additional boards manager URLs* diisi
@@ -400,18 +405,27 @@ Uno GND ───────────────── pin G papan ekstensi
 ## 9. ESP32-CAM
 
 1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. `CAM_HOSTNAME` sudah `"fireguard-cam"` dan baris kedua
-   `NETWORKS` sudah berisi WiFi milik ESP32 (`fireguard-robot`). Cukup ubah **baris pertama** `NETWORKS`
-   menjadi WiFi yang sama dengan ESP32.
+   `NETWORKS` sudah berisi WiFi milik ESP32 (`fireguard-robot`). Kalau ESP32 memakai WiFi sendiri, `NETWORKS`
+   tidak perlu diubah (baris `NAMA_WIFI` dilewati). Kalau ESP32 memakai WiFi rumah/hotspot, isi **baris
+   pertama** `NETWORKS` dengan WiFi yang sama.
 2. Board: **AI Thinker ESP32-CAM**. Untuk upload: sambungkan **GPIO0 ke GND**, tekan reset, upload, lalu lepas
    GPIO0 dan tekan reset lagi. Catat IP di Serial Monitor (115200).
-3. Daya: **5V dan GND dari buck**, dengan **kapasitor 470 µF** di pin 5V–GND-nya (kaki minus kapasitor ke GND).
-   Tidak ada kabel ke Uno.
+   Tidak punya ESP32-CAM-MB atau USB-TTL? Pakai Uno: jumper RESET–GND di Uno, lalu 5V–5V, GND–GND,
+   **D0 → U0R**, **D1 → U0T** (tidak disilang). Kalau gagal setelah tulisan "Changing baud rate", pilih board
+   ESP32 Wrover Module (PSRAM Enabled, Partition Scheme Huge APP, Upload Speed 115200).
+3. Daya: **5V dan GND dari buck** (atau pin V/G papan ekstensi), sebaiknya dengan **kapasitor 470 µF** di pin
+   5V–GND-nya kalau ada (kaki minus kapasitor ke GND). Tidak ada kabel ke Uno.
 
 ---
 
 ## 10. Sambungkan ke dashboard
 
-1. Buka `fireguard/index.html` di laptop/HP yang tersambung ke WiFi yang sama. Untuk lomba atau demo, pakai
+1. Robot memakai WiFi sendiri (`WIFI_SSID` tidak diisi)? Sambungkan laptop/HP ke WiFi `fireguard-robot`
+   (password `kopak1234`), buka `fireguard/index.html` dari folder di laptop, lalu di pengaturan isi alamat robot
+   `192.168.4.1` dan alamat kamera `192.168.4.2` (kalau kosong, coba `192.168.4.3`). Selama tersambung ke WiFi
+   robot, laptop tidak bisa internet. Kalau memakai WiFi rumah/hotspot, ikuti nomor berikut.
+
+   Buka `fireguard/index.html` di laptop/HP yang tersambung ke WiFi yang sama. Untuk lomba atau demo, pakai
    hotspot HP sendiri: WiFi tempat acara belum tentu mengizinkan sesama perangkat saling terhubung, dan IP
    robot bisa dilihat langsung di daftar perangkat hotspot (namanya `fireguard`).
 2. Klik ikon roda gigi → mode **Langsung** → alamat robot: IP ESP32 dari Serial Monitor (mis. `192.168.1.24`)

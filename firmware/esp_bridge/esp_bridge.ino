@@ -27,9 +27,12 @@
 //  KONFIGURASI
 // ==================================================================
 #define ROBOT_NAME   "fireguard"        // "fireguard" atau "ecobot" (dipakai untuk mDNS dan topik MQTT)
-#define FW_VERSION   "1.0.0"
+#define FW_VERSION   "1.1.0"
 
-#define WIFI_SSID    "NAMA_WIFI"        // WiFi rumah / kampus / hotspot HP
+// Biarkan "NAMA_WIFI" supaya robot langsung membuat WiFi sendiri: nama "<ROBOT_NAME>-robot"
+// (mis. fireguard-robot), password AP_PASS, alamat robot 192.168.4.1. Isi kalau mau memakai WiFi
+// rumah / hotspot HP; kalau WiFi itu tidak ditemukan, robot tetap membuat WiFi sendiri.
+#define WIFI_SSID    "NAMA_WIFI"
 #define WIFI_PASS    "PASSWORD_WIFI"
 #define WIFI_TIMEOUT_MS 15000UL         // kalau gagal tersambung, ESP membuat WiFi sendiri (mode AP)
 #define AP_PASS      "kopak1234"        // password WiFi mode AP (minimal 8 karakter)
@@ -202,38 +205,46 @@ static void readUno() {
 // ------------------------------------------------------------------
 static void startWifi() {
   WiFi.persistent(false);
-  WiFi.mode(WIFI_STA);
+  // WIFI_SSID belum diisi: tidak usah menunggu, langsung buat WiFi sendiri
+  const bool adaWifi = strlen(WIFI_SSID) > 0 && strcmp(WIFI_SSID, "NAMA_WIFI") != 0;
+  if (adaWifi) {
+    WiFi.mode(WIFI_STA);
 #if defined(ESP32)
-  WiFi.setHostname(ROBOT_NAME);
-  WiFi.setSleep(false);                 // latensi lebih rendah
+    WiFi.setHostname(ROBOT_NAME);
+    WiFi.setSleep(false);               // latensi lebih rendah
 #else
-  WiFi.hostname(ROBOT_NAME);
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+    WiFi.hostname(ROBOT_NAME);
+    WiFi.setSleepMode(WIFI_NONE_SLEEP);
 #endif
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  LOG("Menyambung ke WiFi \"%s\"", WIFI_SSID);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    LOG("Menyambung ke WiFi \"%s\"", WIFI_SSID);
 
-  unsigned long t0 = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_TIMEOUT_MS) {
-    delay(250);
-    LOG(".");
+    unsigned long t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_TIMEOUT_MS) {
+      delay(250);
+      LOG(".");
+    }
+    LOG("\n");
+
+    if (WiFi.status() == WL_CONNECTED) {
+      apMode = false;
+      LOG("Tersambung. IP: %s\n", WiFi.localIP().toString().c_str());
+      return;
+    }
+    WiFi.disconnect();
+    LOG("WiFi \"%s\" tidak tersambung.\n", WIFI_SSID);
+  } else {
+    LOG("WIFI_SSID belum diisi, langsung membuat WiFi sendiri.\n");
   }
-  LOG("\n");
 
-  if (WiFi.status() == WL_CONNECTED) {
-    apMode = false;
-    LOG("Tersambung. IP: %s\n", WiFi.localIP().toString().c_str());
-    return;
-  }
-
-  // gagal: buat WiFi sendiri supaya dashboard tetap bisa tersambung (alamat 192.168.4.1)
+  // buat WiFi sendiri supaya dashboard tetap bisa tersambung (alamat 192.168.4.1)
   apMode = true;
-  WiFi.disconnect();
   WiFi.mode(WIFI_AP);
   String apName = String(ROBOT_NAME) + "-robot";
   WiFi.softAP(apName.c_str(), AP_PASS);
-  LOG("WiFi gagal. Mode AP \"%s\", IP: %s\n", apName.c_str(), WiFi.softAPIP().toString().c_str());
+  LOG("Mode AP: WiFi \"%s\", password \"%s\", alamat robot %s\n",
+      apName.c_str(), AP_PASS, WiFi.softAPIP().toString().c_str());
 }
 
 // ------------------------------------------------------------------

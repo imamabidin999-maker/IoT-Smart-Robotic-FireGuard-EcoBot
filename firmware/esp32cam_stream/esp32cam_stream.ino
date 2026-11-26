@@ -32,6 +32,8 @@
 
 // Daftar WiFi yang dicoba bergantian. Isi WiFi utama, dan (opsional) WiFi milik ESP bridge
 // robot (mode AP: "<nama robot>-robot"), supaya kamera tetap tersambung walau WiFi utama hilang.
+// Baris "NAMA_WIFI" yang belum diisi dilewati, jadi kalau ESP bridge memakai WiFi sendiri,
+// daftar ini tidak perlu diubah.
 struct Net { const char* ssid; const char* pass; };
 static const Net NETWORKS[] = {
   { "NAMA_WIFI",        "PASSWORD_WIFI" },
@@ -255,6 +257,7 @@ static bool initCamera() {
 static bool connectWifi() {
   const size_t count = sizeof(NETWORKS) / sizeof(NETWORKS[0]);
   for (size_t i = 0; i < count; i++) {
+    if (strlen(NETWORKS[i].ssid) == 0 || strcmp(NETWORKS[i].ssid, "NAMA_WIFI") == 0) continue;   // belum diisi
     Serial.printf("WiFi: mencoba \"%s\"", NETWORKS[i].ssid);
     WiFi.disconnect(true);
     WiFi.mode(WIFI_STA);
@@ -288,6 +291,7 @@ void setup() {
 
   while (!connectWifi()) {
     Serial.println("Belum ada WiFi yang bisa dipakai, coba lagi…");
+    delay(1000);
   }
 
   if (MDNS.begin(CAM_HOSTNAME)) {

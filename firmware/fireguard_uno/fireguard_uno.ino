@@ -12,7 +12,8 @@
   PENTING soal Serial: Uno cuma punya satu Serial hardware (pin 0/1) dan itu juga
   dipakai USB. Saat upload sketch, LEPAS kabel TX/RX ke ESP dulu, pasang lagi setelah selesai.
 
-  Semua yang mungkin perlu Anda ubah ada di bagian KONFIGURASI paling atas.
+  Semua yang mungkin perlu Anda ubah ada di bagian KONFIGURASI paling atas. Nilai bawaannya
+  sudah cocok dengan robot tim: 2 sensor api, 2 MQ-2, relay aktif-LOW, 4 baterai seri lewat buck.
 */
 
 #include <Servo.h>
@@ -24,8 +25,8 @@
 #define SERIAL_BAUD     57600
 
 // ---- jumlah sensor yang terpasang ----
-#define FLAME_COUNT     3      // 3 (Kiri A0, Depan A1, Kanan A2) atau 2 (Kiri A0, Kanan A1)
-#define GAS_COUNT       1      // 1 atau 2
+#define FLAME_COUNT     2      // 2 (Kiri A0, Kanan A1) atau 3 (Kiri A0, Depan A1, Kanan A2)
+#define GAS_COUNT       2      // 2 (A3 dan A4) atau 1 (A3 saja)
 
 // ---- pin ----
 // Sensor api (output analog AO), urutan: Kiri, Depan, Kanan (kalau FLAME_COUNT 2: Kiri, Kanan)
@@ -46,13 +47,13 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
 
 #define PIN_NOZZLE      11     // servo nozzle
 #define PIN_PUMP        4      // ke IN modul relay / basis TIP120 lewat 1 kΩ / SIG modul MOSFET (BUKAN langsung ke pompa)
-#define PUMP_ACTIVE_HIGH 1     // modul relay biasanya aktif LOW -> ganti jadi 0
+#define PUMP_ACTIVE_HIGH 0     // 0 = relay aktif-LOW (relay SONGLE 1 kanal). Modul MOSFET/relay aktif-HIGH -> 1
 
 // ---- baterai ----
-// Jumlah sel 18650 yang disusun SERI: 2 (7,4 V) atau 4 (14,8 V, wajib lewat buck untuk modul 5 V).
+// Jumlah sel 18650 yang disusun SERI: 4 (14,8 V, wajib lewat buck untuk modul 5 V) atau 2 (7,4 V).
 // Dengan 4 sel, PWM motor otomatis dibagi dua: roda tetap secepat rancangan 2 sel dan motor TT
-// tidak kelebihan tegangan.
-#define BAT_CELLS       2
+// tidak kelebihan tegangan. Samakan dengan BAT_CELLS di tes_motor.ino.
+#define BAT_CELLS       4
 
 // Sensor tegangan (opsional). Pasang pembagi tegangan dari + baterai ke A5, lalu ubah
 // HAS_BATTERY_SENSE jadi 1. Kalau tidak dipasang, biarkan 0.

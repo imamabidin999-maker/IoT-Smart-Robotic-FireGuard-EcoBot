@@ -104,20 +104,20 @@ function variant(name, file, pairs) {
 
 let binFG, binEB, binFGv, binEBr, binFG4;
 before(() => {
-  binFG = compile('fireguard', path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'));     // bawaan: 3 sensor api
+  // rangkaian lengkap di panduan: 3 sensor api, 1 MQ-2, pompa aktif-HIGH, baterai 2 sel seri
+  binFG = variant('fireguard_ref', 'firmware/fireguard_uno/fireguard_uno.ino', [
+    ['#define FLAME_COUNT     2 ', '#define FLAME_COUNT     3 '],
+    ['#define GAS_COUNT       2 ', '#define GAS_COUNT       1 '],
+    ['#define PUMP_ACTIVE_HIGH 0', '#define PUMP_ACTIVE_HIGH 1'],
+    ['#define BAT_CELLS       4', '#define BAT_CELLS       2'],
+  ]);
   binEB = compile('ecobot', path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'));
   binFGv = variant('fireguard_variant', 'firmware/fireguard_uno/fireguard_uno.ino', [
-    ['#define FLAME_COUNT     3 ', '#define FLAME_COUNT     2 '],
-    ['#define GAS_COUNT       1 ', '#define GAS_COUNT       2 '],
+    ['#define BAT_CELLS       4', '#define BAT_CELLS       2'],
     ['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1'],
   ]);
-  // susunan robot uji tim: 2 sensor api, 2 MQ-2, relay aktif-LOW, baterai 4 sel seri lewat buck
-  binFG4 = variant('fireguard_4s', 'firmware/fireguard_uno/fireguard_uno.ino', [
-    ['#define FLAME_COUNT     3 ', '#define FLAME_COUNT     2 '],
-    ['#define GAS_COUNT       1 ', '#define GAS_COUNT       2 '],
-    ['#define PUMP_ACTIVE_HIGH 1', '#define PUMP_ACTIVE_HIGH 0'],
-    ['#define BAT_CELLS       2', '#define BAT_CELLS       4'],
-  ]);
+  // sketch bawaan = robot tim: 2 sensor api, 2 MQ-2, relay aktif-LOW, baterai 4 sel seri lewat buck
+  binFG4 = compile('fireguard', path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'));
   binEBr = variant('ecobot_relay', 'firmware/ecobot_uno/ecobot_uno.ino', [
     ['#define BRUSH_USE_PWM   1', '#define BRUSH_USE_PWM   0'],
     ['#define BRUSH_ACTIVE_HIGH 1', '#define BRUSH_ACTIVE_HIGH 0'],
@@ -276,9 +276,12 @@ test('FireGuard varian 2 sensor api + 2 MQ-2 + baterai: info menyesuaikan, A1 me
   assert.deepEqual(await fgMotors(h), { l: 150, r: -150 }, 'api di A1 (Kanan) -> berputar ke kanan');
 });
 
-test('FireGuard 4 sel seri + relay aktif-LOW: PWM ke L298N dibagi dua, pompa menyala saat pin LOW', async () => {
+test('FireGuard bawaan (robot tim): 2 sensor api, 2 MQ-2, 4 sel seri, relay aktif-LOW', async () => {
   const h = mk(binFG4);
   await fgBoot(h);
+  assert.deepEqual(h.infos[0].flame, ['Kiri', 'Kanan']);
+  assert.deepEqual(h.infos[0].gas, ['MQ-2 #1', 'MQ-2 #2']);
+  assert.ok(h.notes.some((l) => /\(2 sensor api, 2 MQ-2\)/.test(l)), h.notes.join('\n'));
   assert.equal(await h.q('QP', FG.PUMP), 1, 'relay aktif-LOW: pompa mati = pin HIGH sejak boot');
 
   await h.send('MODE M');
@@ -302,8 +305,7 @@ test('FireGuard 4 sel seri + relay aktif-LOW: PWM ke L298N dibagi dua, pompa men
 
 test('FireGuard: pembagi 10k+10k ditolak saat BAT_CELLS 4, karena A5 bisa lebih dari 5 V', () => {
   const sketch = 'firmware/fireguard_uno/fireguard_uno.ino';
-  const fourCells = [
-    ['#define BAT_CELLS       2', '#define BAT_CELLS       4'],
+  const fourCells = [                   // bawaan sudah BAT_CELLS 4
     ['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1'],
   ];
   assert.throws(() => variant('fireguard_4s_divider_bad', sketch, fourCells));

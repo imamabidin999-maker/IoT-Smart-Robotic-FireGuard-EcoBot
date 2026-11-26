@@ -272,7 +272,8 @@ ESP32 GND ─────────────── GND bersama
 
 1. Buka `firmware/esp_bridge/esp_bridge.ino`. Ubah:
    - `ROBOT_NAME` → `"ecobot"`
-   - `WIFI_SSID` dan `WIFI_PASS` → WiFi/hotspot yang akan dipakai
+   - `WIFI_SSID` dan `WIFI_PASS` → WiFi/hotspot yang akan dipakai. Kalau dibiarkan `"NAMA_WIFI"`, robot langsung
+     membuat WiFi sendiri (`ecobot-robot`, password `kopak1234`, alamat `192.168.4.1`)
 2. Pasang library **WebSockets** (oleh Markus Sattler) lewat Library Manager, pilih board ESP32, lalu upload lewat USB ESP32.
    Langkah rincinya (paket board ESP32, port, tombol BOOT) ada di [RAKIT-FIREGUARD.md](RAKIT-FIREGUARD.md) bagian 8, nomor 2.
 3. Buka Serial Monitor ESP32 (baud 115200). Catat alamat IP yang muncul, mis. `Tersambung. IP: 192.168.1.23`.
@@ -286,7 +287,7 @@ ESP32 GND ─────────────── GND bersama
 
 1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. Ubah:
    - `CAM_HOSTNAME` → `"ecobot-cam"`
-   - baris pertama `NETWORKS` → WiFi yang sama dengan ESP32
+   - baris pertama `NETWORKS` → WiFi yang sama dengan ESP32 (biarkan `NAMA_WIFI` kalau ESP32 memakai WiFi sendiri)
    - baris kedua `NETWORKS` → `{ "ecobot-robot", "kopak1234" }`
 2. Board: **AI Thinker ESP32-CAM**. Untuk upload: sambungkan **GPIO0 ke GND**, tekan reset, upload, lalu lepas
    GPIO0 dan tekan reset lagi. Catat IP di Serial Monitor (115200).

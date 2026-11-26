@@ -20,7 +20,7 @@ sama penuh sebelum disatukan.
 
 Pengecualian khusus FireGuard: 4 seri boleh dipakai kalau **semua** modul 5 V (termasuk Uno lewat pin 5V dan
 pompa) mengambil daya dari buck, VIN Uno dan jack DC papan ekstensi dibiarkan kosong, dan `BAT_CELLS` di
-`fireguard_uno.ino` serta `tes_motor.ino` diisi `4`. Firmware lalu membagi dua PWM motor, jadi motor TT tetap
+`fireguard_uno.ino` serta `tes_motor.ino` bernilai `4` (bawaan sketch; untuk 2 sel seri ubah jadi `2`). Firmware lalu membagi dua PWM motor, jadi motor TT tetap
 kebagian tegangan yang sama seperti dengan 2 sel. Firmware EcoBot belum punya pengaturan ini.
 
 ```
@@ -108,13 +108,13 @@ pompa (−) ──► GND bersama
 Dioda 1N4007 melintang di pompa: sisi bergaris (katoda) ke (+)
 ```
 
-- Banyak modul relay 1 kanal (terutama yang memakai optocoupler) **aktif-LOW**. Untuk modul seperti itu ubah
-  `PUMP_ACTIVE_HIGH` jadi `0`.
+- Banyak modul relay 1 kanal (terutama yang memakai optocoupler) **aktif-LOW**. Sketch FireGuard bawaan sudah
+  `PUMP_ACTIVE_HIGH 0` untuk modul seperti itu; modul aktif-HIGH pakai `1`.
   Cara mengeceknya: begitu Uno menyala, LED relay harus mati. Kalau menyala, nilainya terbalik.
 - Pompa di **NO**, bukan NC, supaya pompa mati selama relay tidak aktif.
 - Pompa yang berputar kering cepat rusak. Pastikan terendam air sebelum diuji.
 - Bisa juga memakai transistor TIP120 atau modul MOSFET dengan wiring seperti motor sapu EcoBot (bagian 4),
-  cukup ganti D3 dengan D4. Untuk keduanya `PUMP_ACTIVE_HIGH` dibiarkan `1`.
+  cukup ganti D3 dengan D4. Untuk keduanya `PUMP_ACTIVE_HIGH` diubah jadi `1`.
 - Pompa bisa diganti kipas (motor DC + baling-baling) di relay yang sama. Kipas cukup untuk api kecil seperti lilin.
 
 ### Sensor api dan gas
@@ -126,8 +126,9 @@ dan menyemprot). Karena FireGuard tidak punya sensor rintangan, `FLAME_DANGER` s
 dekat robot ke api; cara mengukurnya ada di RAKIT-FIREGUARD.md langkah 11. Sensor IR ini juga terpengaruh
 cahaya matahari dan lampu pijar, jadi kalibrasi di tempat robot dipakai.
 
-**Soal jumlah sensor:** bawaan sketch adalah **3 sensor api (Kiri, Depan, Kanan) + 1 MQ-2**. Kalau hanya
-2 sensor api atau ada 2 MQ-2, cukup ubah `FLAME_COUNT` / `GAS_COUNT` di sketch. Dashboard mengikuti sendiri.
+**Soal jumlah sensor:** bawaan sketch adalah **2 sensor api (Kiri A0, Kanan A1) + 2 MQ-2 (A3, A4)**, sesuai
+robot tim. Kalau memasang 3 sensor api (Kiri, Depan, Kanan) atau hanya 1 MQ-2, cukup ubah `FLAME_COUNT` /
+`GAS_COUNT` di sketch. Dashboard mengikuti sendiri.
 FireGuard tidak memakai sensor ultrasonik; enam HC-SR04 di daftar Anda untuk EcoBot.
 
 MQ-2 perlu pemanasan sekitar 20 detik setiap dinyalakan (dashboard menampilkan "Pemanasan"), dan idealnya
@@ -267,9 +268,9 @@ GND Uno ─────────────────────── GN
 - Daya papan ekstensi: saat uji cukup lewat kabel USB ESP32. Di robot, lewat jack DC papan (cek tulisan di
   dekatnya; banyak papan menerima 6,5–16 V, cocok untuk baterai 2S) atau 5 V dari buck ke pin 5V papan.
 - Sketch `esp_bridge` jalan di ESP32 dan ESP8266.
-- Isi `WIFI_SSID`, `WIFI_PASS`, dan `ROBOT_NAME` (`fireguard` atau `ecobot`). Kalau WiFi gagal tersambung
-  dalam 15 detik, ESP membuat WiFi sendiri bernama `<robot>-robot` (password dari `AP_PASS`), dan
-  dashboard bisa tersambung ke `192.168.4.1`.
+- Isi `ROBOT_NAME` (`fireguard` atau `ecobot`). Kalau `WIFI_SSID` dibiarkan `NAMA_WIFI`, ESP langsung membuat
+  WiFi sendiri bernama `<robot>-robot` (password dari `AP_PASS`) dan dashboard tersambung ke `192.168.4.1`.
+  Kalau `WIFI_SSID` diisi tapi gagal tersambung dalam 15 detik, ESP juga membuat WiFi sendiri.
 - Alamat di dashboard: `fireguard.local` / `ecobot.local` (mDNS), atau IP yang tampil di Serial Monitor
   (ESP32). Di HP Android, `.local` kadang tidak terbaca. Pakai IP kalau begitu.
 
@@ -280,7 +281,7 @@ Hanya butuh daya: 5 V stabil dan GND (bagian 1). Tidak ada kabel ke Uno.
 - Board di Arduino IDE: **AI Thinker ESP32-CAM**. Untuk upload: sambungkan **GPIO0 ke GND**, tekan reset,
   upload, lepas GPIO0, tekan reset lagi. Pakai adaptor USB-serial (atau papan ESP32-CAM-MB).
 - Isi daftar WiFi di `NETWORKS`. Baris kedua bisa diisi WiFi milik ESP bridge (mode AP) supaya kamera ikut
-  tersambung kalau WiFi utama hilang.
+  tersambung kalau WiFi utama hilang. Baris `NAMA_WIFI` yang belum diisi dilewati.
 - Alamat kamera di dashboard: `fireguard-cam.local` / `ecobot-cam.local`, atau IP-nya. Hanya satu penonton
   stream dalam satu waktu.
 

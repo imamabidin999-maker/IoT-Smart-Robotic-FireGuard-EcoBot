@@ -77,16 +77,16 @@ Beberapa hal di daftar komponen tidak sepenuhnya jelas bagi saya. Ini yang saya 
 
 | Hal | Yang saya asumsikan | Kalau beda |
 |---|---|---|
-| Jumlah sensor api | **3** (Kiri A0, Depan A1, Kanan A2) | `FLAME_COUNT 2` di sketch kalau hanya dua (Kiri A0, Kanan A1); dashboard ikut sendiri |
+| Jumlah sensor api | **2** (Kiri A0, Kanan A1), sesuai robot tim | `FLAME_COUNT 3` di sketch kalau memasang tiga (Kiri A0, Depan A1, Kanan A2); dashboard ikut sendiri |
 | Sensor ultrasonik FireGuard | **tidak ada**; FireGuard berhenti mendekat berdasarkan kekuatan api (`FLAME_DANGER`) | 6 HC-SR04 hanya untuk EcoBot |
-| Jumlah MQ-2 | **1** | `GAS_COUNT 2` |
+| Jumlah MQ-2 | **2** (A3, A4) | `GAS_COUNT 1` kalau hanya satu |
 | "ESP extension" | modul **ESP32** (atau ESP8266) sebagai jembatan WiFi ke Uno; ESP32-CAM khusus kamera | sketch bridge jalan di ESP32 dan ESP8266 |
 | Driver motor roda | 1 modul L298N per robot: channel A roda kiri, channel B roda kanan | pin di `docs/WIRING.md` bagian 2 |
 | Motor sapu EcoBot | lewat pensaklar di D3: **modul relay** (dipakai di panduan rakit), transistor TIP120, atau modul MOSFET | relay: ubah `BRUSH_USE_PWM` jadi `0`. Bawaan sketch `1` untuk TIP120/MOSFET, kecepatan sapu bisa diatur |
 | Servo EcoBot | 1 mini servo untuk mengangkat / menurunkan sapu | `LIFT_DOWN_ANGLE`, `LIFT_UP_ANGLE` |
 | 6 ultrasonik EcoBot | Depan, Kiri-depan, Kanan-depan, Kiri, Kanan, **Wadah** (mengukur isi wadah) | urutan & pin di `docs/WIRING.md` |
-| Pompa FireGuard | pompa celup mini 3–6 V lewat modul relay di D4 (**keduanya tidak ada di daftar Anda**, perlu dibeli) | `PIN_PUMP`, `PUMP_ACTIVE_HIGH` (`0` untuk relay aktif-LOW) |
-| Baterai | 2 sel 18650 seri (7,4 V) | satu sel tidak cukup untuk L298N dan Uno |
+| Pompa FireGuard | pompa celup mini 3–6 V lewat modul relay di D4 | `PIN_PUMP`, `PUMP_ACTIVE_HIGH` (bawaan `0` untuk relay aktif-LOW; `1` untuk MOSFET/relay aktif-HIGH) |
+| Baterai | FireGuard: 4 sel 18650 seri (14,8 V) lewat buck, `BAT_CELLS 4`. EcoBot: 2 sel seri (7,4 V) | `BAT_CELLS 2` kalau FireGuard memakai 2 sel seri; satu sel tidak cukup untuk L298N dan Uno |
 | Mode saat menyala | FireGuard: otomatis (diam sampai ada api). EcoBot: manual (tidak langsung jalan sendiri) | `setup()` di sketch |
 
 ## Pengujian
