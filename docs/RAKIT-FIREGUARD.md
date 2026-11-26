@@ -477,11 +477,14 @@ Lalu di lantai:
 | Api lurus di depan, tapi robot malah berbelok ke kanan | `FLAME_COUNT` masih `2`, sehingga sensor Depan di A1 dibaca sebagai Kanan. Ubah jadi `3` lalu upload ulang |
 | Ketiga angka sensor api 0, robot mengira ada api besar | papan ekstensi belum menyala (sensor mendapat daya dari pin V-nya), atau kabel VCC sensor lepas |
 | Uno di meja tanpa sensor, tapi status `spray`/`rest` dan relay klik sendiri | pin A0–A4 yang kosong terbaca acak sekitar 200–300, mirip api dekat, dan FireGuard menyala dalam mode Otomatis. Ketik `MODE M` dulu selama menguji tanpa sensor |
+| Angka sensor api dan gas mirip semua dan naik-turun bersamaan | sensor belum dapat daya (papan ekstensi belum menyala, LED power di modul sensor padam) atau GND Uno belum disatukan dengan pin G papan ekstensi |
 | Angka sensor api tidak pernah di atas ±700 walau tidak ada api | pin V papan ekstensi masih 3,3 V: pindahkan jumpernya ke 5V |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
 | Robot menabrak lilin | `FLAME_DANGER` terlalu kecil, naikkan |
 | Relay langsung menyala begitu robot dinyalakan | `PUMP_ACTIVE_HIGH` terbalik |
 | Relay berbunyi klik tapi pompa diam | pompa tersambung ke NC, bukan NO; atau COM belum diberi 5 V |
+| Relay diam dan LED-nya mati saat `PUMP 1` | VCC relay belum dapat 5 V (pin IN hanya sinyal, daya koil dari VCC), GND relay belum ke GND bersama, atau robot masih mode Otomatis: cek `"m":"M"` di telemetri |
+| Muncul `# Perintah tidak dikenal: GET..` | ada titik ikut terketik. Ketik perintahnya persis, mis. `GET` atau `MODE M`, tanpa titik atau titik dua |
 | Pompa cuma menyala sebentar saat diuji dari Serial Monitor | normal, pengaman 0,6 detik. Ketik `PUMP 1` berulang, atau tahan tombol di dashboard |
 | Uno/ESP32/kamera restart saat pompa menyala | dioda di pompa, buck kurang kuat, kabel daya terlalu kecil/panjang |
 | Gas terus "Pemanasan" lebih dari 20 detik | Uno restart berulang (cek daya), karena hitungan pemanasan mulai lagi tiap Uno menyala |
