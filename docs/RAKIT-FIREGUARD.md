@@ -28,7 +28,7 @@ dengan api sungguhan, jadi tiap bagian harus sudah pasti jalan sebelum digabung.
 |---|---|
 | Holder baterai 2S (2 sel seri) + BMS 2S | baterai jadi 7,4 V, dan aman dari kelebihan/kekurangan isi |
 | Saklar on/off | memutus baterai (sering sudah ikut di kit chassis) |
-| Buck converter 5 V, minimal 3 A (LM2596, atau XL4015 yang lebih kuat) | daya 5 V untuk ESP32, ESP32-CAM, servo, MQ-2, relay, dan pompa |
+| Buck converter 5 V, minimal 3 A (LM2596, XL4015 yang lebih kuat, atau buck mini MP1584 kalau tempatnya sempit) | daya 5 V untuk ESP32, ESP32-CAM, servo, MQ-2, relay, dan pompa. Tidak harus di atas dek: boleh ditempel double tape di bawah dek atas atau di sisi holder baterai |
 | Pompa air celup mini DC 3–6 V | penyemprot air |
 | Selang silikon ±50 cm (diameter mengikuti pipa pompa, biasanya 5–8 mm) | dari pompa ke nozzle |
 | Botol plastik 300–600 ml | tangki air |
@@ -238,7 +238,9 @@ Catatan:
 5. MQ-2 kedua (kalau ada): VCC dan GND sama seperti yang pertama, AO → **A4**, lalu ubah `GAS_COUNT` jadi `2`.
    Di dashboard, sensor di A3 tampil sebagai *MQ-2 #1* dan yang di A4 sebagai *MQ-2 #2*. Supaya gampang
    diingat, pasang MQ-2 kiri di A3 dan yang kanan di A4. Dua MQ-2 memakan ±300 mA, jadi ambil 5 V-nya dari
-   buck, jangan dari pin V papan ekstensi yang juga menghidupi ESP32 dan sensor api.
+   buck, jangan dari pin V papan ekstensi yang juga menghidupi ESP32 dan sensor api. Buck belum terpasang?
+   Sementara, VCC MQ-2 kiri boleh dari terminal **5V L298N** (jumper 5V-EN tetap terpasang) dan VCC MQ-2 kanan
+   dari pin **5V Uno**. Masing-masing cuma kebagian ±150 mA. Dua sumber 5V itu jangan disambung satu sama lain.
 6. **Letak:** di dek atas bagian depan atau samping, menghadap keluar dan tidak tertutup, supaya asap dari arah
    api cepat sampai. Jauhkan dari jalur semprotan dan tetesan nozzle: MQ-2 yang basah angkanya kacau dan bisa
    rusak. Ujung nozzle sebaiknya lebih menjorok ke depan daripada MQ-2, dan MQ-2 jangan menghalangi pandangan
