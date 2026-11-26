@@ -329,12 +329,16 @@ Uno GND ───────────────── pin G papan ekstensi
   (langkah 2, nomor 5) atau 5V dari buck ke pin 5V papan.
 
 1. Buka `firmware/esp_bridge/esp_bridge.ino`. `ROBOT_NAME` sudah `"fireguard"`, jadi cukup ubah
-   `WIFI_SSID` dan `WIFI_PASS` sesuai WiFi/hotspot yang akan dipakai.
+   `WIFI_SSID` dan `WIFI_PASS` sesuai WiFi/hotspot yang akan dipakai. Setelah diisi password, jangan commit
+   file ini ke GitHub.
 2. **Upload ke ESP32** (Arduino IDE 2):
    - Sekali saja: File → Preferences → *Additional boards manager URLs* diisi
      `https://espressif.github.io/arduino-esp32/package_esp32_index.json`. Lalu di Boards Manager pasang
      **esp32 by Espressif Systems**, dan di Library Manager pasang **WebSockets** oleh **Markus Sattler** (bukan
-     library lain yang namanya mirip).
+     library lain yang namanya mirip). Paket **Arduino ESP32 Boards** (oleh Arduino) hanya untuk Arduino Nano
+     ESP32 dan tidak dipakai di sini.
+   - Kompilasi pertama untuk ESP32 bisa makan 5–10 menit karena seluruh core ESP32 ikut dibangun; berikutnya jauh
+     lebih cepat. Supaya terlihat prosesnya, centang File → Preferences → *Show verbose output during: compile*.
    - Colok kabel USB ke **port micro-USB di papan ESP32 itu sendiri** (di antara tombol EN dan BOOT), bukan ke
      port USB papan ekstensi: port papan ekstensi biasanya hanya untuk daya. Pakai kabel data, bukan kabel yang
      cuma untuk mengecas.
