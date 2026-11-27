@@ -124,7 +124,8 @@ Yang sudah dijalankan otomatis:
   (`tools/mock-robot`), termasuk server mati lalu hidup lagi, stream kamera macet, lima ukuran layar, kartu Update Firmware ESP,
   dan tampilan kabel sensor lepas. Setiap tes memastikan **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
 - **GitHub Actions** (`.github/workflows/ci.yml`) menjalankan semua tes di atas dan mengompilasi setiap sketch dengan core asli
-  (Uno, ESP32 3.0.7 dan terbaru, ESP32-CAM, ESP8266), lalu memeriksa file `.bin` ESP dengan `publish_fw.py`.
+  (Uno, ESP32 core 3.0.7 dan core terbaru, saat ini 4.0.0, ESP32-CAM, ESP8266), lalu memeriksa file `.bin` ESP
+  dengan `publish_fw.py`.
 
 ```bash
 # sekali saja

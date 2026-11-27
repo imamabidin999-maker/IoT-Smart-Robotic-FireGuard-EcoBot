@@ -41,7 +41,8 @@ robot punya roda dan pompa yang bisa bergerak sendiri kalau update dilakukan sem
 
 ## Persiapan (sekali saja)
 
-1. **Arduino IDE**: Boards Manager → *esp32 by Espressif Systems* versi 3.x. Library Manager:
+1. **Arduino IDE**: Boards Manager → *esp32 by Espressif Systems* versi 3.x atau 4.x (keduanya sudah dicek
+   compile). Library Manager:
    **WebSockets** (Markus Sattler) dan **ArduinoJson** (Benoit Blanchon, versi 7.x).
 2. **Partition Scheme** (menu Tools), penting untuk OTA:
    - ESP32 DevKit (*ESP32 Dev Module*): **Default 4MB with spiffs**. Jangan *Huge APP (No OTA)*.
@@ -406,6 +407,7 @@ Dashboard juga mencatat setiap langkah update di kartu **Aktivitas Terbaru** (bi
 |---|---|
 | Port jaringan tidak muncul di Arduino IDE | Laptop beda WiFi dengan robot, firewall memblokir Arduino IDE, atau `OTA_PASSWORD` masih kosong (Serial Monitor menulis `Push OTA mati`) |
 | `Error[1]` / `begin error` saat Push OTA | Partition Scheme tanpa OTA. Pilih *Default 4MB with spiffs*, upload lewat USB sekali |
+| `Sketch too big` saat compile ESP32 | Firmware tidak muat di slot OTA 1,25 MB. Dengan core ESP32 4.x, bridge sudah memakai sekitar 92–94% slot (core 3.x sekitar 87–89%), jadi menambah fitur bisa membuatnya penuh. Pilih Partition Scheme **Minimal SPIFFS (1.9MB APP with OTA)**, upload lewat USB sekali, lalu terbitkan dengan `publish_fw.py ... --slot-size 0x1E0000`. Jangan pilih *Huge APP*: skema itu tidak punya slot kedua untuk OTA |
 | Upload berhenti di tengah / timeout | WiFi lemah. Dekatkan laptop ke robot |
 | `Pull OTA mati: SERVER_BASE belum diisi` | Isi `SERVER_BASE` di `secrets.h` |
 | `Robot sedang membuat WiFi sendiri (mode AP)` | WiFi di `WIFI_SSID` tidak ditemukan saat ESP menyala. Cek nama/password, harus 2,4 GHz |
