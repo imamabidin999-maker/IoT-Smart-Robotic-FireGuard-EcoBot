@@ -44,6 +44,11 @@ robot punya roda dan pompa yang bisa bergerak sendiri kalau update dilakukan sem
 1. **Arduino IDE**: Boards Manager → *esp32 by Espressif Systems* versi 3.x atau 4.x (keduanya sudah dicek
    compile). Library Manager:
    **WebSockets** (Markus Sattler) dan **ArduinoJson** (Benoit Blanchon, versi 7.x).
+
+   **Samakan versi core ESP32 di semua laptop kelompok.** Core 4.x mengganti cara login Push OTA dari MD5 ke
+   SHA-256. ESP yang di-upload dari laptop ber-core 4.x akan menolak Push OTA dari laptop yang masih core 3.x
+   (*Authentication Failed* walaupun password benar). Kebalikannya masih bisa, karena alat upload core 4.x
+   masih mengenali cara login lama.
 2. **Partition Scheme** (menu Tools), penting untuk OTA:
    - ESP32 DevKit (*ESP32 Dev Module*): **Default 4MB with spiffs**. Jangan *Huge APP (No OTA)*.
    - ESP32-CAM (*AI Thinker ESP32-CAM*): **Minimal SPIFFS (1.9MB APP with OTA)**. Bawaan board ini adalah
@@ -381,6 +386,27 @@ berikutnya. Untuk sekarang:
 
 ---
 
+## Pengembangan berikutnya (belum dibuat)
+
+Bahan untuk bagian saran di laporan. Semuanya sengaja belum dibuat, alasannya ada di tiap poin.
+
+- **Update Uno lewat WiFi.** Butuh rangkaian tambahan, lihat bagian sebelumnya.
+- **Cek baterai sebelum update.** Kodenya sudah ada. Pasang pembagi tegangan di A5, ubah `HAS_BATTERY_SENSE`
+  dan `BAT_DIVIDER_X100` di `fireguard_uno.ino`, lalu isi `OTA_MIN_BAT_MV` di `config.h` (mis. `13600` untuk
+  4 sel). Selama pembagi tegangan belum dipasang, pemeriksaan ini mati.
+- **Delta OTA.** Robot hanya mengunduh bagian firmware yang berubah (komponen `esp_delta_ota` dari Espressif).
+  Komponen ini untuk ESP-IDF dan tidak tersedia di Arduino IDE. Manfaatnya paling terasa pada alat yang
+  memakai kuota seluler, sedangkan robot ini update lewat WiFi lokal.
+- **Bundel sertifikat Mozilla.** Core 4.x punya `useBuiltinCACertBundle()`, tapi menambah sekitar 70 KB,
+  padahal sisa slot OTA bridge di core 4.x tinggal sekitar 70–100 KB. Untuk sekarang `root_ca.h` berisi 9 Root
+  CA dari penerbit besar, jadi server yang berganti penerbit sertifikat tidak langsung memutus update.
+- **Terbit otomatis dari GitHub Actions.** CI sudah meng-compile dan memeriksa file `.bin` di setiap push, tapi
+  tidak menerbitkannya. Menerbitkan butuh kunci rahasia tanda tangan, dan kunci itu harus tetap di laptop
+  kelompok, bukan di GitHub. Selain itu, menerbitkan versi baru sebaiknya keputusan kelompok, bukan efek
+  samping dari setiap push ke `main`.
+
+---
+
 ## Log untuk laporan
 
 Ambil potongan yang memuat kata kunci ini saja:
@@ -406,6 +432,7 @@ Dashboard juga mencatat setiap langkah update di kartu **Aktivitas Terbaru** (bi
 | Gejala | Penyebab dan solusi |
 |---|---|
 | Port jaringan tidak muncul di Arduino IDE | Laptop beda WiFi dengan robot, firewall memblokir Arduino IDE, atau `OTA_PASSWORD` masih kosong (Serial Monitor menulis `Push OTA mati`) |
+| *Authentication Failed* padahal password sudah benar | Laptop ini memakai core ESP32 yang lebih lama daripada laptop yang terakhir meng-upload ESP (core 4.x login dengan SHA-256, core 3.x masih MD5). Samakan versi core di Boards Manager, atau upload ulang ESP lewat USB dari laptop ini |
 | `Error[1]` / `begin error` saat Push OTA | Partition Scheme tanpa OTA. Pilih *Default 4MB with spiffs*, upload lewat USB sekali |
 | `Sketch too big` saat compile ESP32 | Firmware tidak muat di slot OTA 1,25 MB. Dengan core ESP32 4.x, bridge sudah memakai sekitar 92–94% slot (core 3.x sekitar 87–89%), jadi menambah fitur bisa membuatnya penuh. Pilih Partition Scheme **Minimal SPIFFS (1.9MB APP with OTA)**, upload lewat USB sekali, lalu terbitkan dengan `publish_fw.py ... --slot-size 0x1E0000`. Jangan pilih *Huge APP*: skema itu tidak punya slot kedua untuk OTA |
 | Upload berhenti di tengah / timeout | WiFi lemah. Dekatkan laptop ke robot |
