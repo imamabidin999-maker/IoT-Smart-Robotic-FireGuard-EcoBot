@@ -996,3 +996,137 @@ for (const robot of ROBOTS) {
     } finally { await srv.close(); }
   });
 }
+
+// =====================================================================
+//  Update firmware ESP (OTA) & sensor yang kabelnya lepas
+// =====================================================================
+const otaPanelVisible = (page) => page.locator('#cardOta').isVisible();
+
+for (const robot of ROBOTS) {
+  test(`${robot} demo: kartu Update Firmware ESP — cek, ditahan saat robot belum diam, konfirmasi dua klik, unduh, masa percobaan, VALID`, async () => {
+    await run(robot, {}, async ({ page }) => {
+      assert.equal(await otaPanelVisible(page), true);
+      await waitText(page, '#otaCur', /^v1\.2\.0$/);
+      assert.match(await text(page, '#otaGuard'), /SHA-256.*tanda tangan.*rollback/);
+      await page.evaluate((r) => { window[r].link.sim.ota.speed = 4; }, robot);
+
+      // robot dibuat bergerak / otomatis dulu: update harus ditahan
+      await page.click('#btnAuto');
+      await waitMode(page, 'A');
+      await page.click('#otaCheck');
+      await waitText(page, '#otaBadge', /^Update tersedia$/);
+      await waitLog(page, /Update firmware ESP v1\.3\.0 tersedia/);
+      assert.equal(await text(page, '#otaInstall'), 'Pasang v1.3.0');
+      await page.click('#otaInstall');
+      await waitText(page, '#otaInstall', /^Yakin\? Klik lagi untuk memasang v1\.3\.0$/);
+      await page.click('#otaInstall');
+      await waitText(page, '#otaBadge', /^Ditahan$/);
+      await waitText(page, '#otaMsg', /mode Otomatis/);
+
+      // robot dihentikan: Pasang bisa langsung dicoba lagi
+      await setManual(page);
+      assert.equal(await page.locator('#otaInstall').isEnabled(), true);
+      await page.click('#otaInstall');
+      await page.click('#otaInstall');
+      await waitText(page, '#otaBadge', /^Mengunduh/, 3000);
+      assert.equal(await page.locator('#otaBar').isVisible(), true, 'progres unduhan tampil');
+      assert.equal(await page.locator('#otaCheck').isEnabled(), false, 'tidak bisa cek ulang selama update');
+      await waitText(page, '#otaBadge', /^Masa percobaan$/, 6000);
+      await waitText(page, '#otaBadge', /^VALID$/, 6000);
+      await waitText(page, '#otaCur', /^v1\.3\.0$/);
+      assert.match(await text(page, '#otaLast'), /VALID v1\.3\.0/);
+      await waitLog(page, /v1\.3\.0 lolos health check/);
+      await page.click('#otaCheck');
+      await waitText(page, '#otaBadge', /^Terbaru$/);
+      assert.equal(await page.locator('#otaInstall').isEnabled(), false);
+    });
+  });
+}
+
+test('fireguard demo: firmware baru gagal health check -> dikembalikan ke versi lama, versi itu tidak ditawarkan lagi', async () => {
+  await run('fireguard', {}, async ({ page }) => {
+    await waitText(page, '#otaCur', /^v1\.2\.0$/);
+    await page.evaluate(() => { const o = window.fireguard.link.sim.ota; o.speed = 4; o.failNext = true; });
+    await setManual(page);
+    await page.click('#otaCheck');
+    await waitText(page, '#otaBadge', /^Update tersedia$/);
+    await page.click('#otaInstall');
+    await page.click('#otaInstall');
+    await waitText(page, '#otaBadge', /^Masa percobaan$/, 6000);
+    // selama masa percobaan perintah gerak ditolak ESP
+    await page.evaluate(() => window.fireguard.send('DRV 0 60'));
+    await waitText(page, '#otaMsg', /Perintah gerak ditolak/, 3000);
+    await waitText(page, '#otaBadge', /^Dikembalikan$/, 8000);
+    assert.match(await text(page, '#otaMsg'), /v1\.3\.0 dibatalkan: health check gagal/);
+    await waitText(page, '#otaCur', /^v1\.2\.0$/);
+    assert.match(await text(page, '#otaLast'), /Dikembalikan v1\.3\.0/);
+    await waitLog(page, /dibatalkan/);
+    await page.click('#otaCheck');
+    await waitText(page, '#otaBadge', /^Ditahan$/);
+    assert.match(await text(page, '#otaMsg'), /pernah gagal/);
+    assert.equal(await page.locator('#otaInstall').isEnabled(), false);
+  });
+});
+
+test('fireguard WebSocket: status OTA dari ESP tampil, update dipasang lewat robot palsu', async () => {
+  const p = ports();
+  const srv = mock.start({ robot: 'fireguard', ws: p.ws, cam: p.cam, mqttWs: 0, prefix: 'kopak', quiet: true });
+  srv.sim.ota.speed = 4;
+  try {
+    await run('fireguard', { cfg: mkCfg('fireguard', p), allow: NET_NOISE, label: 'ota ws' }, async ({ page }) => {
+      await waitText(page, '#connText', /^Terhubung$/, 6000);
+      await waitText(page, '#otaCur', /^v1\.2\.0$/);
+      await page.click('#btnManual');
+      await waitMode(page, 'M');
+      await page.click('#otaCheck');
+      await waitText(page, '#otaBadge', /^Update tersedia$/);
+      assert.ok(srv.received.some((r) => r.line === 'OTA CHECK'));
+      await page.click('#otaInstall');
+      await page.click('#otaInstall');
+      await waitText(page, '#otaBadge', /^VALID$/, 10000);
+      assert.ok(srv.received.some((r) => r.line === 'OTA INSTALL'));
+      assert.equal(srv.sim.mode, 'M', 'robot dihentikan (STOP) sebelum firmware diganti');
+      await waitText(page, '#otaCur', /^v1\.3\.0$/);
+    });
+  } finally { await srv.close(); }
+});
+
+test('fireguard MQTT: bisa mengecek update, tapi tombol Pasang mati (harus koneksi langsung)', async () => {
+  const p = ports();
+  const srv = mock.start({ robot: 'fireguard', ws: p.ws, cam: p.cam, mqttWs: p.mqttWs, prefix: 'kopak', quiet: true });
+  try {
+    const cfg = mkCfg('fireguard', p, { mode: 'mqtt', mqttUrl: `ws://127.0.0.1:${p.mqttWs}`, mqttPrefix: 'kopak', host: '' });
+    await run('fireguard', { cfg, allow: NET_NOISE, label: 'ota mqtt' }, async ({ page }) => {
+      await waitText(page, '#connText', /^Terhubung$/, 8000);
+      await page.click('#otaCheck');
+      await waitText(page, '#otaBadge', /^Update tersedia$/, 5000);
+      assert.equal(await page.locator('#otaInstall').isEnabled(), false);
+      assert.match(await text(page, '#otaHint'), /MQTT hanya bisa mengecek/);
+      // dipaksa lewat konsol pun, robot (palsu, sama seperti firmware) menolak
+      await page.evaluate(() => window.fireguard.send('OTA INSTALL'));
+      await waitText(page, '#otaMsg', /bukan lewat MQTT/, 4000);
+    });
+  } finally { await srv.close(); }
+});
+
+test('fireguard WebSocket: kabel sensor lepas ditandai "Kabel lepas", ada banner & log, hilang setelah dipasang lagi', async () => {
+  const p = ports();
+  const srv = mock.start({ robot: 'fireguard', ws: p.ws, cam: p.cam, mqttWs: 0, prefix: 'kopak', quiet: true });
+  try {
+    await run('fireguard', { cfg: mkCfg('fireguard', p), allow: NET_NOISE, label: 'kabel lepas' }, async ({ page }) => {
+      await waitText(page, '#connText', /^Terhubung$/, 6000);
+      srv.sim.unplug('flame', 1, true);
+      await page.waitForFunction(() => document.querySelectorAll('#flameList .sensor-card')[1].dataset.status === 'err', null, { timeout: 4000 });
+      assert.equal(await page.locator('#flameList .sensor-card').nth(1).locator('.sensor-status').textContent(), 'Kabel lepas');
+      assert.equal(await page.locator('#flameList .sensor-card').nth(1).locator('.sensor-value').textContent(), '—');
+      await page.waitForSelector('#alertStack .alert-banner[data-level="warn"]', { timeout: 3000 });
+      assert.match(await text(page, '#alertStack'), /SENSOR TIDAK TERSAMBUNG — Sensor api Kanan/);
+      assert.match(await text(page, '#sensorNote'), /Sensor api Kanan tidak tersambung/);
+      await waitLog(page, /Sensor api Kanan tidak tersambung/);
+      srv.sim.unplug('flame', 1, false);
+      await page.waitForFunction(() => document.querySelectorAll('#flameList .sensor-card')[1].dataset.status !== 'err', null, { timeout: 4000 });
+      await waitLog(page, /Sensor api Kanan tersambung lagi/);
+      await page.waitForFunction(() => !document.querySelector('#alertStack .alert-banner[data-level="warn"]'), null, { timeout: 3000 });
+    });
+  } finally { await srv.close(); }
+});

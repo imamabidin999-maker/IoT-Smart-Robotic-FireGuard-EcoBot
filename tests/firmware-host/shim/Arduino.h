@@ -44,6 +44,8 @@ extern int g_analog[64];
 extern unsigned long g_echo_us[64];
 extern int g_servo_angle[64];
 extern int g_pin_mode[64];
+extern int g_float[64];        // 1 = kabel pin analog lepas (mengambang)
+extern int g_charge[64];       // sisa muatan pin yang mengambang (0..1023)
 
 inline unsigned long millis() { return g_now_ms; }
 inline unsigned long micros() { return g_now_ms * 1000UL; }
@@ -53,7 +55,13 @@ inline void pinMode(uint8_t pin, uint8_t mode) { g_pin_mode[pin] = mode; }
 inline void digitalWrite(uint8_t pin, uint8_t v) { g_pin_state[pin] = v; }
 inline int digitalRead(uint8_t pin) { return g_pin_state[pin]; }
 inline void analogWrite(uint8_t pin, int v) { g_pin_pwm[pin] = v; }
-inline int analogRead(uint8_t pin) { return g_analog[pin]; }
+// Pin yang dipakai sebagai OUTPUT terbaca sesuai level yang ditulis; pin yang mengambang hanya
+// menyimpan muatan terakhirnya (seperti pin AVR asli tanpa apa pun yang tersambung).
+inline int analogRead(uint8_t pin) {
+  if (g_pin_mode[pin] == OUTPUT) { g_charge[pin] = g_pin_state[pin] ? 1023 : 0; return g_charge[pin]; }
+  if (g_float[pin]) return g_charge[pin];
+  return g_analog[pin];
+}
 inline unsigned long pulseIn(uint8_t pin, uint8_t, unsigned long) { return g_echo_us[pin]; }
 
 // random() gaya Arduino, deterministik supaya pengujian bisa diulang

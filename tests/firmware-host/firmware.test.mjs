@@ -79,6 +79,7 @@ class Host {
     return a.concat(b);
   }
   analog(pin, v) { return this.step(`A ${pin} ${v}`); }
+  float(pin, on = true) { return this.step(`FL ${pin} ${on ? 1 : 0}`); }
   echo(pin, cm) { return this.step(`E ${pin} ${cm}`); }
   async q(kind, pin) { return (await this.step(`${kind} ${pin}`))[0]; }
   tel() { return this.tels[this.tels.length - 1]; }
@@ -104,8 +105,10 @@ function variant(name, file, pairs) {
 
 let binFG, binEB, binFGv, binEBr, binFG4;
 before(() => {
-  // rangkaian lengkap di panduan: 3 sensor api, 1 MQ-2, pompa aktif-HIGH, baterai 2 sel seri
+  // rangkaian lengkap di panduan: 3 sensor api, 1 MQ-2, pompa aktif-HIGH, baterai 2 sel seri,
+  // menyala langsung dalam mode otomatis
   binFG = variant('fireguard_ref', 'firmware/fireguard_uno/fireguard_uno.ino', [
+    ['#define BOOT_MODE_AUTO  0', '#define BOOT_MODE_AUTO  1'],
     ['#define FLAME_COUNT     2 ', '#define FLAME_COUNT     3 '],
     ['#define GAS_COUNT       2 ', '#define GAS_COUNT       1 '],
     ['#define PUMP_ACTIVE_HIGH 0', '#define PUMP_ACTIVE_HIGH 1'],
@@ -113,6 +116,7 @@ before(() => {
   ]);
   binEB = compile('ecobot', path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'));
   binFGv = variant('fireguard_variant', 'firmware/fireguard_uno/fireguard_uno.ino', [
+    ['#define BOOT_MODE_AUTO  0', '#define BOOT_MODE_AUTO  1'],
     ['#define BAT_CELLS       4', '#define BAT_CELLS       2'],
     ['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1'],
   ]);
@@ -151,7 +155,7 @@ test('FireGuard: pesan info & telemetri adalah JSON valid dengan isi yang benar'
   await fgBoot(h);
   const info = h.infos[0];
   assert.equal(info.robot, 'fireguard');
-  assert.equal(info.fw, '1.3.0');
+  assert.equal(info.fw, '1.4.0');
   assert.deepEqual(info.flame, ['Kiri', 'Depan', 'Kanan']);
   assert.deepEqual(info.flamePins, ['A0', 'A1', 'A2']);
   assert.deepEqual(info.gas, ['MQ-2']);
@@ -281,7 +285,10 @@ test('FireGuard bawaan (robot tim): 2 sensor api, 2 MQ-2, 4 sel seri, relay akti
   await fgBoot(h);
   assert.deepEqual(h.infos[0].flame, ['Kiri', 'Kanan']);
   assert.deepEqual(h.infos[0].gas, ['MQ-2 #1', 'MQ-2 #2']);
-  assert.ok(h.notes.some((l) => /\(2 sensor api, 2 MQ-2\)/.test(l)), h.notes.join('\n'));
+  assert.ok(h.notes.some((l) => /\(2 sensor api, 2 MQ-2\), mode MANUAL/.test(l)), h.notes.join('\n'));
+  assert.equal(h.tel().m, 'M', 'menyala dalam mode manual: robot diam sampai diperintah');
+  assert.equal(h.tel().st, 'manual');
+  assert.deepEqual(await fgMotors(h), { l: 0, r: 0 });
   assert.equal(await h.q('QP', FG.PUMP), 1, 'relay aktif-LOW: pompa mati = pin HIGH sejak boot');
 
   await h.send('MODE M');
@@ -301,6 +308,81 @@ test('FireGuard bawaan (robot tim): 2 sensor api, 2 MQ-2, 4 sel seri, relay akti
   await h.t(1500);
   assert.equal(h.tel().st, 'turn');
   assert.deepEqual(await fgMotors(h), { l: 75, r: -75 }, 'AUTO_TURN_PWM 150 dibagi dua');
+});
+
+test('FireGuard: kabel AO sensor yang lepas dideteksi, diabaikan di mode otomatis, dan dilaporkan (fe/ge)', async () => {
+  const h = mk(binFGv);                       // mode otomatis saat menyala, 2 sensor api, 2 MQ-2
+  await fgBoot(h);
+  await h.t(1500);
+  assert.deepEqual(h.tel().fe, [0, 0], 'sensor yang tersambung tidak boleh dianggap lepas');
+  assert.deepEqual(h.tel().ge, [0, 0]);
+
+  // kabel AO sensor api kanan lepas: pin mengambang, sisa muatannya seperti "api sangat dekat"
+  await h.float(FG.FL[1]);
+  await h.t(2500);
+  assert.deepEqual(h.tel().fe, [0, 1]);
+  assert.equal(h.tel().fs[1], 0, 'sensor yang lepas tidak boleh memicu tanda api');
+  assert.equal(h.tel().st, 'idle', 'robot tidak bergerak karena sensor yang lepas');
+  assert.deepEqual(await fgMotors(h), { l: 0, r: 0 });
+  assert.equal(await h.q('QP', FG.PUMP), 1, 'pompa tetap mati (relay aktif-LOW: HIGH = mati)');
+
+  // sensor kiri tetap bekerja normal
+  h.analog(FG.FL[0], 300);
+  await h.t(1500);
+  assert.ok(['turn', 'spray', 'approach'].includes(h.tel().st), `sensor yang masih tersambung tetap dipakai (st=${h.tel().st})`);
+  h.analog(FG.FL[0], 950);
+  await h.t(6000);
+
+  // kabel MQ-2 #2 lepas: tidak memicu alarm gas
+  await h.t(16000);                           // lewat masa pemanasan
+  await h.float(FG.GAS[1]);
+  await h.t(2500);
+  assert.deepEqual(h.tel().ge, [0, 1]);
+  assert.deepEqual(h.tel().gl, [0, 0]);
+
+  // kabel dipasang lagi: status kembali normal
+  await h.float(FG.FL[1], false);
+  await h.float(FG.GAS[1], false);
+  await h.t(3000);
+  assert.deepEqual(h.tel().fe, [0, 0]);
+  assert.deepEqual(h.tel().ge, [0, 0]);
+  assert.equal(await h.q('QM', FG.FL[1]), 0, 'pin sensor dikembalikan ke INPUT setelah dicek');
+});
+
+test('FireGuard: CFG mengganti ambang api dan PWM otomatis saat berjalan, nilai yang salah ditolak', async () => {
+  const h = mk(binFG4);
+  await fgBoot(h);
+  const info0 = h.infos[0];
+  assert.equal(info0.cfg, 1, 'info memberi tahu ESP bahwa CFG didukung');
+  assert.deepEqual(info0.spd, { turn: 150, fwd: 140 });
+
+  await h.send('CFG F 600 300');
+  let info = h.infos[h.infos.length - 1];
+  assert.deepEqual(info.th, { fw: 600, fd: 300, gw: 350, gd: 550 }, 'info dikirim ulang dengan ambang baru');
+
+  h.analog(FG.FL[1], 650);              // Kanan: 650 di atas ambang waspada baru (600)
+  await h.send('MODE A');
+  await h.t(1500);
+  assert.equal(h.tel().st, 'idle', 'dengan ambang 600, nilai 650 belum dianggap api');
+
+  await h.send('cfg f 700 400');        // huruf kecil juga diterima
+  await h.t(1000);
+  assert.equal(h.tel().st, 'turn', 'dengan ambang 700, nilai 650 sudah waspada');
+  assert.deepEqual(await fgMotors(h), { l: 75, r: -75 }, 'PWM putar bawaan 150, dibagi dua untuk 4 sel');
+
+  await h.send('CFG A 200 140');
+  await h.t(50);
+  assert.deepEqual(await fgMotors(h), { l: 100, r: -100 }, 'PWM putar baru 200, dibagi dua untuk 4 sel');
+  assert.deepEqual(h.infos[h.infos.length - 1].spd, { turn: 200, fwd: 140 });
+
+  const before = h.infos.length;
+  await h.send('CFG F 300 600');        // waspada harus lebih besar dari bahaya
+  await h.send('CFG G 600 500');        // gas: waspada harus lebih kecil dari bahaya
+  await h.send('CFG A 300 100');        // PWM maksimal 255
+  await h.send('CFG X 1 2');
+  assert.equal(h.infos.length, before, 'CFG yang salah tidak mengubah apa pun');
+  assert.ok(h.notes.some((l) => l.startsWith('# CFG ditolak')), h.notes.join('\n'));
+  assert.deepEqual(h.infos[h.infos.length - 1].th, { fw: 700, fd: 400, gw: 350, gd: 550 });
 });
 
 test('FireGuard: pembagi 10k+10k ditolak saat BAT_CELLS 4, karena A5 bisa lebih dari 5 V', () => {
@@ -664,7 +746,7 @@ const notesSince = (h, n) => h.notes.slice(n);
 test('Serial Monitor: pesan pembuka menyebut versi & mode, baris lain tetap JSON', async () => {
   const fg = mk(binFG);
   await fgBoot(fg);
-  assert.ok(fg.notes.some((l) => /^# FireGuard 1\.3\.0 siap \(3 sensor api, 1 MQ-2\), mode OTOMATIS/.test(l)), fg.notes.join('\n'));
+  assert.ok(fg.notes.some((l) => /^# FireGuard 1\.4\.0 siap \(3 sensor api, 1 MQ-2\), mode OTOMATIS/.test(l)), fg.notes.join('\n'));
   assert.ok(fg.notes.some((l) => /Ketik MODE M dulu/.test(l)));
   assert.ok(fg.infos.length >= 1 && fg.tels.length >= 1, 'info & telemetri tetap terkirim');
   const eb = mk(binEB);

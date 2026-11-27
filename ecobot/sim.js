@@ -78,6 +78,8 @@
     /** dipakai demo: kosongkan wadah */
     resetBin() { this.binPct = 4; }
 
+    otaBusyReason() { return this.brushOut > 0 || this.brushTarget > 0 ? 'Sapu masih berputar. Matikan dulu.' : null; }
+
     _brush(pct) {
       pct = clamp(Math.round(pct), 0, 100);
       if (pct > 0 && pct < BRUSH.min) pct = BRUSH.min;

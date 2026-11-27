@@ -40,6 +40,8 @@
       this.gs = [180];
       this.gsForced = [0];
       this.gl = [0];
+      this.fe = [0, 0];             // 1 = kabel AO sensor api lepas (lihat unplug)
+      this.ge = [0];
       this.state = 'idle';
       this.stT = 0;                 // lama berada di state sekarang (detik)
       this.calmT = 0;               // lama tanpa api (detik)
@@ -73,10 +75,20 @@
       t.gs = this.gs.map(Math.round);
       t.gl = this.gl.slice();
       t.gw = this.uptime() < 4 ? 1 : 0;
+      t.fe = this.fe.slice();
+      t.ge = this.ge.slice();
       t.p = this.pumpOn ? 1 : 0;
       t.na = Math.round(this.noz);
       return t;
     }
+
+    /** pengujian: kabel sensor dicabut (on=true) / dipasang lagi */
+    unplug(kind, idx, on) {
+      const arr = kind === 'flame' ? this.fe : this.ge;
+      if (idx < arr.length) arr[idx] = on ? 1 : 0;
+    }
+
+    otaBusyReason() { return this.pumpOn ? 'Pompa masih menyala. Matikan dulu.' : null; }
 
     /** dipakai demo: klik kartu sensor -> paksa level 0/1/2 */
     force(kind, idx, level) {
@@ -119,13 +131,13 @@
       for (let i = 0; i < this.fl.length; i++) {
         const target = FLAME_TARGET[this.flForced[i]] + rnd(this.flForced[i] ? 25 : 10);
         this.fl[i] += (target - this.fl[i]) * k;
-        this.fs[i] = flameLevel(this.fs[i], this.fl[i]);
+        this.fs[i] = this.fe[i] ? 0 : flameLevel(this.fs[i], this.fl[i]);   // kabel lepas: diabaikan seperti di firmware
       }
       const warm = this.uptime() < 4;
       for (let i = 0; i < this.gs.length; i++) {
         const target = warm ? 60 + this.uptime() * 30 : GAS_TARGET[this.gsForced[i]] + rnd(8);
         this.gs[i] += (target - this.gs[i]) * k;
-        this.gl[i] = warm ? 0 : gasLevel(this.gl[i], this.gs[i]);
+        this.gl[i] = (warm || this.ge[i]) ? 0 : gasLevel(this.gl[i], this.gs[i]);
       }
 
       const anyWarn = this.fs.some((l) => l >= 1);

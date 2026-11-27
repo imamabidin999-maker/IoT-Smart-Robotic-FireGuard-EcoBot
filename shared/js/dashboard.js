@@ -4,7 +4,8 @@
   Yang diurus di sini (sama untuk kedua robot):
     koneksi ke robot, jam, indikator koneksi & baterai, toggle Otomatis/Manual,
     joystick + WASD, slider kecepatan, tombol berhenti darurat, panel kamera,
-    kartu status sistem, log aktivitas, banner peringatan, dialog pengaturan.
+    kartu status sistem, kartu update firmware ESP (ota-panel.js), log aktivitas, banner peringatan,
+    dialog pengaturan.
 
   Yang diurus file robot masing-masing (fireguard.js / ecobot.js):
     kartu sensor, aktuator (pompa / sapu), grafik, dan aturan alarm — lewat hook:
@@ -75,6 +76,12 @@
       this.alarm = new K.Alarm(document.title);
       this.log = new K.ActivityLog({ list: this.el.logList, storageKey: `kopak.${o.robot}.log.v1` });
       this.camera = new K.CameraPanel(this.el.camViewport, { toast: (t, l) => this.toast(t, l) });
+      const otaRoot = K.$('cardOta');
+      this.ota = otaRoot && K.OtaPanel ? new K.OtaPanel(otaRoot, {
+        send: (cmd) => this.send(cmd, true),
+        log: (level, text) => this.log.add(level, text),
+        toast: (text, level) => this.toast(text, level),
+      }) : null;
 
       this.link = new K.RobotLink({ robot: o.robot, simFactory: o.simFactory });
       this.link.on('state', () => this._onLinkState());
@@ -174,6 +181,7 @@
       this._lowBatLogged = false;
       this._lastSummary = null;
 
+      if (this.ota) this.ota.reset(cfg.mode);
       this.link.connect(cfg);
       if (this.o.onConfig) this.o.onConfig(cfg, this);
       this.renderAll();
@@ -343,7 +351,11 @@
           break;
         case 'bridge':
           this.bridge = Object.assign({}, this.bridge, m);
+          if (this.ota) this.ota.onBridge(this.bridge);
           this._renderSystem();
+          break;
+        case 'ota':
+          if (this.ota) this.ota.onStatus(m);
           break;
         case 'pong':
           if (typeof m.rssi === 'number') this.bridge = Object.assign({}, this.bridge, { rssi: m.rssi });
@@ -396,6 +408,7 @@
       this._renderConn();
       this._renderCommon();
       this._renderSystem();
+      if (this.ota) this.ota.render({ open: this.link.transport === 'open', mode: this.cfg.mode });
       if (this.o.render) this.o.render({ alive: this.alive, tel: this.tel, info: this.info, isDemo: this.isDemo }, this);
     }
 

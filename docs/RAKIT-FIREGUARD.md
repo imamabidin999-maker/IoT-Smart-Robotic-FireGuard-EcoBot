@@ -179,12 +179,15 @@ Baterai 2S (−) ────────────┴── GND semua modul (
    - Arduino IDE → Serial Monitor, baud **57600**. Pilihan akhir baris apa saja boleh, huruf kecil juga boleh.
      Kalau yang muncul huruf acak, baud-nya belum 57600.
    - Begitu terbuka, muncul beberapa baris yang diawali `#`, misalnya
-     `# FireGuard 1.3.0 siap (2 sensor api, 2 MQ-2), mode OTOMATIS` (jumlahnya mengikuti `FLAME_COUNT` dan `GAS_COUNT`).
-     Baris `#` adalah pesan untuk Anda. Setelah itu baris JSON muncul 4× per detik, itu juga normal.
-   - **Ketik `MODE M` dulu.** FireGuard selalu menyala dalam mode Otomatis (diam menunggu api), dan di mode
-     itu perintah gerak dari luar diabaikan (Uno akan menulis `# Diabaikan: robot sedang mode OTOMATIS`).
-     Selama sensor api belum dipasang, ini juga mencegah robot bergerak sendiri, karena pin sensor yang masih
-     kosong bisa terbaca seperti ada api.
+     `# FireGuard 1.4.0 siap (2 sensor api, 2 MQ-2), mode MANUAL: robot diam.` (jumlahnya mengikuti
+     `FLAME_COUNT` dan `GAS_COUNT`). Baris `#` adalah pesan untuk Anda. Setelah itu baris JSON muncul 4× per
+     detik, itu juga normal.
+   - FireGuard selalu menyala dalam mode **Manual**: robot diam sampai diperintah, jadi tidak ada yang bergerak
+     sendiri saat dinyalakan. Mode Otomatis dinyalakan dari dashboard (atau ketik `MODE A`). Kalau Anda sudah
+     memindahkannya ke Otomatis, perintah gerak dari luar diabaikan (`# Diabaikan: robot sedang mode OTOMATIS`);
+     ketik `MODE M` untuk kembali. Mau seperti dulu (langsung Otomatis begitu menyala)? Ubah `BOOT_MODE_AUTO` jadi `1`.
+   - Sensor yang belum dipasang tidak membuat robot mengira ada api: Uno memeriksa kabel AO tiap sensor, dan
+     sensor yang tidak tersambung ditandai `"fe":[...,1]` di telemetri lalu diabaikan.
    - Ketik `DRV 0 60` lalu Enter. Uno membalas `# Roda diperintah berputar: kiri 124, kanan 124 ...` dan semua
      roda harus berputar **maju** sekitar setengah detik lalu berhenti sendiri. Robot memang berhenti sendiri
      kalau perintah tidak diulang (pengaman dead-man).
@@ -361,17 +364,20 @@ Uno GND ───────────────── pin G papan ekstensi
 - Daya ESP32: saat uji cukup kabel USB ke laptop. Di robot, lewat jack DC papan ekstensi dari baterai 2S
   (langkah 2, nomor 5) atau 5V dari buck ke pin 5V papan.
 
-1. Buka `firmware/esp_bridge/esp_bridge.ino`. `ROBOT_NAME` sudah `"fireguard"`. Kalau `WIFI_SSID` dibiarkan
-   `"NAMA_WIFI"`, robot langsung membuat WiFi sendiri: nama `fireguard-robot`, password `kopak1234`, alamat robot
-   `192.168.4.1`. Ini paling praktis untuk demo karena tidak bergantung pada WiFi tempat acara. Kalau mau
-   memakai WiFi rumah atau hotspot, isi `WIFI_SSID` dan `WIFI_PASS`; setelah diisi password, jangan commit
-   file ini ke GitHub.
+1. Buka `firmware/esp_bridge/esp_bridge.ino`. Semua pengaturan ada di tab `config.h`; `ROBOT_NAME` sudah
+   `"fireguard"`. Tanpa diubah apa pun, robot langsung membuat WiFi sendiri: nama `fireguard-robot`, password
+   `kopak1234`, alamat robot `192.168.4.1`. Ini paling praktis untuk demo karena tidak bergantung pada WiFi
+   tempat acara. Mau memakai WiFi rumah, hotspot, atau WiFi lab (untuk OTA)? Jangan tulis password di
+   `config.h`. Buat tab baru `secrets.h` (tombol `...` di kanan deretan tab → *New Tab*), salin isi
+   `secrets.example.h`, lalu isi `WIFI_SSID` dan `WIFI_PASS` di sana. `secrets.h` tidak ikut ke GitHub.
+   Password WiFi robot (`AP_PASS`) juga sebaiknya diganti di `secrets.h`. Update lewat WiFi dijelaskan di
+   [OTA.md](OTA.md).
 2. **Upload ke ESP32** (Arduino IDE 2):
    - Sekali saja: File → Preferences → *Additional boards manager URLs* diisi
      `https://espressif.github.io/arduino-esp32/package_esp32_index.json`. Lalu di Boards Manager pasang
      **esp32 by Espressif Systems**, dan di Library Manager pasang **WebSockets** oleh **Markus Sattler** (bukan
-     library lain yang namanya mirip). Paket **Arduino ESP32 Boards** (oleh Arduino) hanya untuk Arduino Nano
-     ESP32 dan tidak dipakai di sini.
+     library lain yang namanya mirip) dan **ArduinoJson** oleh **Benoit Blanchon** (versi 7). Paket **Arduino
+     ESP32 Boards** (oleh Arduino) hanya untuk Arduino Nano ESP32 dan tidak dipakai di sini.
    - Kompilasi pertama untuk ESP32 bisa makan 5–10 menit karena seluruh core ESP32 ikut dibangun; berikutnya jauh
      lebih cepat. Supaya terlihat prosesnya, centang File → Preferences → *Show verbose output during: compile*.
      Tunggu sampai muncul `Sketch uses ... bytes` dan **jangan klik Cancel** di tengah jalan: file yang baru
@@ -380,7 +386,8 @@ Uno GND ───────────────── pin G papan ekstensi
    - Colok kabel USB ke **port micro-USB di papan ESP32 itu sendiri** (di antara tombol EN dan BOOT), bukan ke
      port USB papan ekstensi: port papan ekstensi biasanya hanya untuk daya. Pakai kabel data, bukan kabel yang
      cuma untuk mengecas.
-   - Pilih board **ESP32 Dev Module** dan port COM yang muncul saat ESP32 dicolok. Port bernama *Standard Serial
+   - Pilih board **ESP32 Dev Module** (Partition Scheme biarkan **Default 4MB with spiffs**, jangan *Huge APP*,
+     supaya update lewat WiFi bisa dipakai) dan port COM yang muncul saat ESP32 dicolok. Port bernama *Standard Serial
      over Bluetooth link* milik Bluetooth laptop, bukan ESP32. Kalau tidak ada port baru, buka Device Manager:
      ESP32 yang drivernya belum terpasang muncul di *Other devices* bertanda kuning, misalnya
      `CP2102 USB to UART Bridge Controller`. Untuk CP2102, unduh
@@ -404,15 +411,16 @@ Uno GND ───────────────── pin G papan ekstensi
 
 ## 9. ESP32-CAM
 
-1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. `CAM_HOSTNAME` sudah `"fireguard-cam"` dan baris kedua
-   `NETWORKS` sudah berisi WiFi milik ESP32 (`fireguard-robot`). Kalau ESP32 memakai WiFi sendiri, `NETWORKS`
-   tidak perlu diubah (baris `NAMA_WIFI` dilewati). Kalau ESP32 memakai WiFi rumah/hotspot, isi **baris
-   pertama** `NETWORKS` dengan WiFi yang sama.
-2. Board: **AI Thinker ESP32-CAM**. Untuk upload: sambungkan **GPIO0 ke GND**, tekan reset, upload, lalu lepas
-   GPIO0 dan tekan reset lagi. Catat IP di Serial Monitor (115200).
+1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. `CAM_HOSTNAME` sudah `"fireguard-cam"`, dan kamera
+   otomatis mencoba WiFi milik ESP32 (`fireguard-robot`). Kalau ESP32 memakai WiFi sendiri, tidak ada yang
+   perlu diubah. Kalau ESP32 memakai WiFi rumah/hotspot, atau password WiFi robot sudah diganti, buat tab
+   `secrets.h` dari `secrets.example.h` (sama seperti ESP32) dan isi `WIFI_SSID`, `WIFI_PASS`, `AP_PASS`.
+2. Board: **AI Thinker ESP32-CAM**, Partition Scheme **Minimal SPIFFS (1.9MB APP with OTA)** kalau kamera mau
+   di-update lewat WiFi nanti (bawaannya *Huge APP* yang tidak bisa OTA). Untuk upload: sambungkan **GPIO0 ke
+   GND**, tekan reset, upload, lalu lepas GPIO0 dan tekan reset lagi. Catat IP di Serial Monitor (115200).
    Tidak punya ESP32-CAM-MB atau USB-TTL? Pakai Uno: jumper RESET–GND di Uno, lalu 5V–5V, GND–GND,
    **D0 → U0R**, **D1 → U0T** (tidak disilang). Kalau gagal setelah tulisan "Changing baud rate", pilih board
-   ESP32 Wrover Module (PSRAM Enabled, Partition Scheme Huge APP, Upload Speed 115200).
+   ESP32 Wrover Module (PSRAM Enabled, Partition Scheme Minimal SPIFFS (1.9MB APP with OTA), Upload Speed 115200).
 3. Daya: **5V dan GND dari buck** (atau pin V/G papan ekstensi), sebaiknya dengan **kapasitor 470 µF** di pin
    5V–GND-nya kalau ada (kaki minus kapasitor ke GND). Tidak ada kabel ke Uno.
 
@@ -491,13 +499,14 @@ Lalu di lantai:
 |---|---|
 | Roda tidak bergerak sama sekali | jalankan `tes_motor` (langkah 3, nomor 6) dan cocokkan hasilnya dengan tabel di sana |
 | Serial Monitor menampilkan huruf acak | baud belum 57600 |
-| Muncul `# Diabaikan: robot sedang mode OTOMATIS` | ketik `MODE M` dulu (robot menyala dalam mode Otomatis) |
+| Muncul `# Diabaikan: robot sedang mode OTOMATIS` | robot sudah dipindah ke Otomatis; ketik `MODE M` dulu |
 | Muncul `# Roda diperintah berputar...` tapi roda diam | perintah sudah sampai ke Uno; cek kabel L298N, GND bersama, dan baterai dengan `tes_motor` |
 | Roda cuma berdengung, tidak berputar | PWM terlalu kecil untuk beban robot: `SPD 255`, lalu naikkan `MIN_PWM` di sketch |
 | Robot bergerak sendiri padahal tidak ada api | cahaya lampu/matahari terbaca sebagai api: jauhi jendela, atau **turunkan** `FLAME_WARN` |
 | Api lurus di depan, tapi robot malah berbelok ke kanan | `FLAME_COUNT` masih `2`, sehingga sensor Depan di A1 dibaca sebagai Kanan. Ubah jadi `3` lalu upload ulang |
-| Ketiga angka sensor api 0, robot mengira ada api besar | papan ekstensi belum menyala (sensor mendapat daya dari pin V-nya), atau kabel VCC sensor lepas |
-| Uno di meja tanpa sensor, tapi status `spray`/`rest` dan relay klik sendiri | pin A0–A4 yang kosong terbaca acak sekitar 200–300, mirip api dekat, dan FireGuard menyala dalam mode Otomatis. Ketik `MODE M` dulu selama menguji tanpa sensor |
+| Ketiga angka sensor api 0, robot mengira ada api besar | papan ekstensi belum menyala (sensor mendapat daya dari pin V-nya), atau kabel VCC sensor lepas. Health check OTA juga menolak keadaan ini (`terbaca 0 (tanpa daya?)`) |
+| Dashboard menulis **Kabel lepas** di kartu sensor (telemetri `"fe"`/`"ge"` berisi 1) | Uno tidak merasakan apa pun di pin itu: kabel AO lepas, salah pin, atau jumper kendur. Sensor itu diabaikan di mode otomatis sampai kabelnya dipasang lagi |
+| Uno di meja tanpa sensor, tapi status `spray`/`rest` dan relay klik sendiri | firmware Uno masih versi lama (sebelum 1.4.0): pin yang kosong terbaca acak, mirip api dekat. Upload versi terbaru, atau ketik `MODE M` selama menguji tanpa sensor |
 | Angka sensor api dan gas mirip semua dan naik-turun bersamaan | sensor belum dapat daya (papan ekstensi belum menyala, LED power di modul sensor padam) atau GND Uno belum disatukan dengan pin G papan ekstensi |
 | Angka sensor api tidak pernah di atas ±700 walau tidak ada api | pin V papan ekstensi masih 3,3 V: pindahkan jumpernya ke 5V |
 | Robot berputar terus tanpa pernah mendekat | kabel AO sensor Kiri dan Kanan tertukar, atau sensor terlalu serong ke luar |
@@ -516,6 +525,7 @@ Lalu di lantai:
 | Pojok kanan bawah Arduino IDE menulis `on COMx [not connected]`, padahal lampu ESP32 menyala | laptop tidak melihat ESP32 di port itu. Buka Tools → Port sebelum dan sesudah ESP32 dicolok, lalu pilih port yang baru muncul. Tidak ada port baru: buka Device Manager lalu colok ESP32. Muncul di *Other devices* bertanda kuning = driver belum terpasang (CP2102 → driver CP210x dari Silicon Labs, CH340 → CH341SER dari WCH, CH9102 → CH343SER dari WCH). Daftar tidak berubah sama sekali = kabelnya cuma kabel cas atau port USB laptop bermasalah: ganti kabel dan port |
 | Upload ESP32 gagal: `Could not open COMx, the port is busy or doesn't exist`, sering disertai `semaphore timeout` | cabut kabel ESP32 lalu buka Tools → Port. Kalau COMx masih ada, port itu bukan ESP32 (sering port Bluetooth laptop): pilih port yang muncul saat ESP32 dicolok. Kalau COMx ikut hilang: tutup program lain yang memakai port, colok ke port USB lain tanpa hub, Upload Speed 115200, ganti kabel, atau pasang ulang driver |
 | Upload ESP32 gagal setelah `Connecting....`: `Failed to connect to ESP32`, `Invalid head of packet`, atau `Wrong boot mode` | ESP32 belum masuk mode upload. Upload lagi, begitu muncul `Connecting....` tahan BOOT, tekan EN sekali sambil BOOT tetap ditahan, lepas BOOT setelah muncul `Writing at ...`. Kabel dari Uno harus di pin 16 dan 17, bukan RX0/TX0; untuk upload pertama lebih aman dicabut dulu. Masih gagal, dan Serial Monitor (115200) penuh kotak-kotak yang tetap muncul walau EN ditahan: papan ESP32-nya kemungkinan rusak, coba papan lain |
+| Update firmware ESP lewat WiFi gagal, ditahan, atau dibatalkan | lihat tabel *Kalau macet* di [OTA.md](OTA.md) |
 | Dashboard terus "Menyambung..." dengan alamat `fireguard.local`, padahal dengan IP bisa | laptop/HP atau jaringannya tidak mendukung alamat `.local` (sering di Android, sebagian laptop Windows, dan WiFi kampus). Pakai IP dari Serial Monitor atau dari daftar perangkat di hotspot HP |
 
 Setelah semuanya jalan, rapikan kabel dengan cable tie, jauhkan dari roda, dan pastikan tidak ada kabel atau

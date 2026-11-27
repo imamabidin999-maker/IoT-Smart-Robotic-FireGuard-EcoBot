@@ -3,3 +3,14 @@ node_modules/
 tests/e2e/screenshots/
 *.log
 .DS_Store
+
+# rahasia: password WiFi/OTA dan kunci tanda tangan firmware (JANGAN di-upload)
+firmware/**/secrets.h
+tools/ota/kunci/
+*.pem
+
+# hasil build & unduhan untuk pengujian
+tests/bridge-host/.build/
+tests/bridge-host/.deps/
+__pycache__/
+firmware/**/build/

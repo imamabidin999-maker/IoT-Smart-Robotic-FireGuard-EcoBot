@@ -418,6 +418,29 @@ dialog.settings form { display: flex; flex-direction: column; max-height: calc(1
   font-size: 11px; color: var(--text-3);
 }
 
+/* ---------- kartu update firmware ESP (OTA) ---------- */
+.ota-badge {
+  font-size: 10.5px; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--border); color: var(--text-3); background: rgba(95,104,114,0.08);
+}
+.ota-badge[data-status="ok"]     { color: var(--safe);   border-color: rgba(47,217,168,0.40); background: rgba(47,217,168,0.10); }
+.ota-badge[data-status="warn"]   { color: var(--warn);   border-color: rgba(242,169,59,0.40); background: rgba(242,169,59,0.12); }
+.ota-badge[data-status="danger"] { color: var(--danger); border-color: rgba(255,93,58,0.40);  background: rgba(255,93,58,0.12); }
+.ota-badge[data-status="info"]   { color: var(--s1);     border-color: rgba(57,135,229,0.45); background: rgba(57,135,229,0.12); }
+.ota-badge[data-status="accent"] { color: var(--accent); border-color: var(--accent);         background: rgba(255,255,255,0.03); }
+.ota-msg { font-size: 12px; line-height: 1.5; color: var(--text-2); min-height: 1.5em; overflow-wrap: anywhere; }
+.ota-msg[data-status="danger"] { color: var(--danger); }
+.ota-msg[data-status="warn"]   { color: var(--warn); }
+.ota-bar .meter-fill { background: var(--s1); }
+.ota-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.ota-install { flex: 1 1 160px; }
+.ota-install.armed { background: rgba(255,93,58,0.14); }
+.ota-hint { font-size: 11px; color: var(--text-3); line-height: 1.45; }
+
+/* sensor yang kabelnya lepas (Uno melapor fe/ge = 1) */
+.sensor-card[data-status="err"] { border-color: rgba(242,169,59,0.45); border-style: dashed; background: rgba(242,169,59,0.06); }
+.sensor-card[data-status="err"] :is(.sensor-icon, .sensor-value, .sensor-status) { color: var(--warn); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

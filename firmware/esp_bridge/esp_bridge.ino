@@ -1,75 +1,78 @@
 /*
   ESP bridge — jembatan WiFi <-> Arduino Uno (untuk FireGuard maupun EcoBot)
   ------------------------------------------------------------------
-  Sketch yang sama dipakai di dua robot. Bedanya cuma ROBOT_NAME di bawah.
+  Sketch yang sama dipakai di dua robot. Bedanya cuma ROBOT_NAME di config.h.
 
   Yang dikerjakan ESP di sini hampir cuma "meneruskan":
     Uno  --(Serial, JSON per baris)-->  ESP  -->  dashboard (WebSocket, dan MQTT kalau diaktifkan)
     Uno  <--(Serial, teks per baris)--  ESP  <--  dashboard
 
-  Jadi semua logika robot tetap ada di Uno. ESP hanya menjawab "PING" sendiri
-  (untuk mengukur latensi dan kekuatan sinyal) dan memberi tahu alamat IP-nya.
+  Jadi semua logika robot tetap ada di Uno. ESP menjawab "PING" sendiri (untuk mengukur latensi dan
+  kekuatan sinyal), memberi tahu alamat IP-nya, dan mengurus update firmware-nya sendiri lewat WiFi:
+    - Push OTA : upload dari Arduino IDE lewat port jaringan (butuh OTA_PASSWORD)
+    - Pull OTA : ESP mengecek server update, dipasang setelah disetujui dari dashboard
+    - Safe OTA : firmware baru diperiksa dulu (health check), kalau gagal kembali ke versi lama
+  Penjelasan lengkap dan langkah praktikumnya ada di docs/OTA.md.
 
-  Board yang didukung: ESP32 (DevKit) dan ESP8266 (NodeMCU / Wemos D1 mini).
+  SEMUA PENGATURAN ada di config.h. Password WiFi/OTA ditulis di secrets.h (salin dari
+  secrets.example.h), supaya tidak ikut ter-upload ke GitHub.
+
+  Board yang didukung: ESP32 (DevKit) dan ESP8266 (NodeMCU / Wemos D1 mini, tanpa Pull OTA).
+  Arduino IDE, ESP32: Tools > Partition Scheme > "Default 4MB with spiffs" (JANGAN "Huge APP",
+  skema itu tidak punya slot kedua untuk OTA).
   Library yang dibutuhkan (Library Manager):
     - "WebSockets" oleh Markus Sattler
+    - "ArduinoJson" oleh Benoit Blanchon, versi 7.x
     - "PubSubClient" oleh Nick O'Leary  (hanya kalau USE_MQTT = 1)
 
-  Wiring (ESP32):   Uno TX (pin 1) --[pembagi tegangan 1k/2k]--> ESP32 GPIO16 (RX2)
-                    Uno RX (pin 0) <------------------------------ ESP32 GPIO17 (TX2)
+  Wiring (ESP32):   Uno TX (pin 1) --[pembagi tegangan]--> ESP32 GPIO16 (RX2)
+                    Uno RX (pin 0) <------------------------ ESP32 GPIO17 (TX2)
                     GND Uno <-> GND ESP
   Uno bekerja di 5 V sedangkan ESP di 3,3 V. Jalur ESP -> Uno aman langsung,
-  tapi jalur Uno -> ESP HARUS diturunkan tegangannya (pembagi 1k dan 2k sudah cukup).
-  Detail lengkap ada di docs/WIRING.md.
+  tapi jalur Uno -> ESP HARUS diturunkan tegangannya. Detail lengkap ada di docs/WIRING.md.
 */
 
-// ==================================================================
-//  KONFIGURASI
-// ==================================================================
-#define ROBOT_NAME   "fireguard"        // "fireguard" atau "ecobot" (dipakai untuk mDNS dan topik MQTT)
-#define FW_VERSION   "1.1.0"
-
-// Biarkan "NAMA_WIFI" supaya robot langsung membuat WiFi sendiri: nama "<ROBOT_NAME>-robot"
-// (mis. fireguard-robot), password AP_PASS, alamat robot 192.168.4.1. Isi kalau mau memakai WiFi
-// rumah / hotspot HP; kalau WiFi itu tidak ditemukan, robot tetap membuat WiFi sendiri.
-#define WIFI_SSID    "NAMA_WIFI"
-#define WIFI_PASS    "PASSWORD_WIFI"
-#define WIFI_TIMEOUT_MS 15000UL         // kalau gagal tersambung, ESP membuat WiFi sendiri (mode AP)
-#define AP_PASS      "kopak1234"        // password WiFi mode AP (minimal 8 karakter)
-
-#define WS_PORT      81
-#define UART_BAUD    57600              // harus sama dengan SERIAL_BAUD di sketch Uno
-#define UART_RX_PIN  16                 // hanya dipakai di ESP32 (RX2)
-#define UART_TX_PIN  17                 // hanya dipakai di ESP32 (TX2)
-
-// MQTT (opsional). 0 = mati, 1 = hidup.
-#define USE_MQTT     0
-#define MQTT_HOST    "broker.hivemq.com"
-#define MQTT_PORT    1883
-#define MQTT_PREFIX  "kopak"            // HARUS sama dengan "Awalan topik" di pengaturan dashboard; buat yang unik
-#define MQTT_USER    NULL
-#define MQTT_PASS    NULL
-
-// ==================================================================
+#include "config.h"
 
 #if defined(ESP32)
   #include <WiFi.h>
   #include <ESPmDNS.h>
-  #define UnoSerial Serial2
-  #define LOG(...)  Serial.printf(__VA_ARGS__)
+  #define UnoSerial  Serial2
+  #define LOG(...)   Serial.printf(__VA_ARGS__)
+  #define BOARD_NAME "esp32"
 #elif defined(ESP8266)
   #include <ESP8266WiFi.h>
   #include <ESP8266mDNS.h>
-  #define UnoSerial Serial              // di ESP8266 satu-satunya UART dipakai untuk Uno, jadi tidak ada log
+  #define UnoSerial  Serial             // di ESP8266 satu-satunya UART dipakai untuk Uno, jadi tidak ada log
   #define LOG(...)
+  #define BOARD_NAME "esp8266"
 #else
   #error "Board tidak didukung. Pilih ESP32 atau ESP8266."
 #endif
 
 #include <WebSocketsServer.h>
+#include <ArduinoOTA.h>
+#include <ArduinoJson.h>
+#include "ota_core.h"
 
 #if USE_MQTT
   #include <PubSubClient.h>
+#endif
+
+// Penanda versi di dalam file .bin: "FWID:<produk>:<versi>;". publish_fw.py dan ESP sendiri
+// membacanya untuk memastikan file yang akan dipasang memang firmware bridge robot ini dengan
+// versi yang sama seperti di manifest.
+#define FW_PRODUCT ROBOT_NAME "-bridge"
+const char FW_ID[] = "FWID:" FW_PRODUCT ":" FW_VERSION ";";
+
+#if PARAM_API_WASPADA && PARAM_API_BAHAYA && (PARAM_API_WASPADA <= PARAM_API_BAHAYA)
+  #error "PARAM_API_WASPADA harus lebih besar dari PARAM_API_BAHAYA (sensor api: nilai kecil = api)"
+#endif
+#if PARAM_GAS_WASPADA && PARAM_GAS_BAHAYA && (PARAM_GAS_WASPADA >= PARAM_GAS_BAHAYA)
+  #error "PARAM_GAS_WASPADA harus lebih kecil dari PARAM_GAS_BAHAYA (sensor gas: nilai besar = gas)"
+#endif
+#if PARAM_API_WASPADA > 1023 || PARAM_API_BAHAYA > 1023 || PARAM_GAS_WASPADA > 1023 || PARAM_GAS_BAHAYA > 1023 || PARAM_PWM_PUTAR > 255 || PARAM_PWM_MAJU > 255
+  #error "Nilai PARAM_ di config.h terlalu besar (ambang maks 1023, PWM maks 255)"
 #endif
 
 enum Source : uint8_t { SRC_WS, SRC_MQTT };
@@ -80,6 +83,9 @@ static bool apMode = false;
 static char lineBuf[384];
 static size_t lineLen = 0;
 static bool lineOverflow = false;
+
+// kondisi robot terakhir menurut Uno (dipakai untuk syarat update dan health check)
+static ota::RobotSnap robot;
 
 #if USE_MQTT
 static WiFiClient netClient;
@@ -97,8 +103,7 @@ static String ipString() {
 
 static void sendToClient(Source src, uint8_t num, const char* line) {
   if (src == SRC_WS) {
-    String s(line);
-    ws.sendTXT(num, s);
+    ws.sendTXT(num, line);
   }
 #if USE_MQTT
   else if (mqtt.connected()) {
@@ -107,29 +112,153 @@ static void sendToClient(Source src, uint8_t num, const char* line) {
 #endif
 }
 
-static void sendBridgeInfo(Source src, uint8_t num) {
-  char out[200];
-  snprintf(out, sizeof(out),
-           "{\"t\":\"bridge\",\"robot\":\"%s\",\"fw\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,\"mode\":\"%s\"}",
-           ROBOT_NAME, FW_VERSION, ipString().c_str(), apMode ? 0 : (int)WiFi.RSSI(), apMode ? "ap" : "sta");
-  sendToClient(src, num, out);
+static void broadcastLine(const char* line) {
+  ws.broadcastTXT(line);
+#if USE_MQTT
+  if (mqtt.connected()) mqtt.publish(topicTel.c_str(), line);
+#endif
 }
 
-// ------------------------------------------------------------------
-//  Perintah dari dashboard
-// ------------------------------------------------------------------
 static void forwardToUno(const char* cmd) {
   UnoSerial.print(cmd);
   UnoSerial.print('\n');
 }
 
+// ------------------------------------------------------------------
+//  Data dari Uno -> semua klien
+// ------------------------------------------------------------------
+static void readUno() {
+  while (UnoSerial.available() > 0) {
+    char c = (char)UnoSerial.read();
+    if (c == '\n') {
+      if (lineLen > 0 && !lineOverflow) {
+        lineBuf[lineLen] = '\0';
+        if (lineBuf[lineLen - 1] == '\r') lineBuf[--lineLen] = '\0';
+        if (lineBuf[0] == '{') {                 // hanya JSON yang diteruskan; teks lain = sampah/debug
+          ota::parseUnoLine(lineBuf, robot, millis());
+          broadcastLine(lineBuf);
+        }
+      }
+      lineLen = 0;
+      lineOverflow = false;
+    } else if (lineLen < sizeof(lineBuf) - 1) {
+      lineBuf[lineLen++] = c;
+    } else {
+      lineOverflow = true;
+    }
+  }
+}
+
+// Tetap melayani dashboard dan Uno saat ESP sedang sibuk (mis. mengunduh firmware)
+static void bridgeService() {
+  ws.loop();
+  readUno();
+#if USE_MQTT
+  if (mqtt.connected()) mqtt.loop();
+#endif
+}
+
+// ------------------------------------------------------------------
+//  Parameter robot dari config.h -> Uno (perintah CFG)
+// ------------------------------------------------------------------
+static void paramWanted(int th[4], int spd[2]) {
+  th[0] = PARAM_API_WASPADA; th[1] = PARAM_API_BAHAYA;
+  th[2] = PARAM_GAS_WASPADA; th[3] = PARAM_GAS_BAHAYA;
+  spd[0] = PARAM_PWM_PUTAR;  spd[1] = PARAM_PWM_MAJU;
+}
+
+static unsigned long lastParamSend = 0;
+
+// Uno membalas CFG dengan pesan info berisi nilai barunya, jadi perintah hanya dikirim ulang
+// kalau nilainya memang masih berbeda (mis. Uno baru saja restart dan kembali ke nilai bawaan).
+static void paramSync(unsigned long now) {
+  int th[4], spd[2];
+  paramWanted(th, spd);
+  if (!(th[0] || th[1] || th[2] || th[3] || spd[0] || spd[1])) return;
+  if (!robot.info || !robot.cfg || (lastParamSend && now - lastParamSend < 5000UL)) return;
+  char cmd[32];
+  bool sent = false;
+  if ((th[0] || th[1]) && robot.haveTh) {
+    int w = th[0] ? th[0] : robot.th[0], d = th[1] ? th[1] : robot.th[1];
+    if ((w != robot.th[0] || d != robot.th[1]) && d >= 1 && d < w && w <= 1023) {
+      snprintf(cmd, sizeof(cmd), "CFG F %d %d", w, d);
+      forwardToUno(cmd);
+      sent = true;
+    }
+  }
+  if ((th[2] || th[3]) && robot.haveTh) {
+    int w = th[2] ? th[2] : robot.th[2], d = th[3] ? th[3] : robot.th[3];
+    if ((w != robot.th[2] || d != robot.th[3]) && w >= 1 && w < d && d <= 1023) {
+      snprintf(cmd, sizeof(cmd), "CFG G %d %d", w, d);
+      forwardToUno(cmd);
+      sent = true;
+    }
+  }
+  if ((spd[0] || spd[1]) && robot.haveSpd) {
+    int t = spd[0] ? spd[0] : robot.spd[0], f = spd[1] ? spd[1] : robot.spd[1];
+    if (t != robot.spd[0] || f != robot.spd[1]) {
+      snprintf(cmd, sizeof(cmd), "CFG A %d %d", t, f);
+      forwardToUno(cmd);
+      sent = true;
+    }
+  }
+  if (sent) {
+    lastParamSend = now;
+    LOG("[Param] Parameter dari firmware ESP dikirim ke Uno.\n");
+  }
+}
+
+// ------------------------------------------------------------------
+//  Update firmware (OTA)
+// ------------------------------------------------------------------
+#if defined(ESP32)
+  #include "ota_esp32.h"
+#else
+  #include "ota_esp8266.h"
+#endif
+
+// ------------------------------------------------------------------
+//  Perintah dari dashboard
+// ------------------------------------------------------------------
+static void sendBridgeInfo(Source src, uint8_t num) {
+  JsonDocument d;
+  d["t"] = "bridge";
+  d["robot"] = ROBOT_NAME;
+  d["fw"] = FW_VERSION;
+  d["id"] = FW_ID;
+  d["board"] = BOARD_NAME;
+  String ip = ipString();                     // disimpan dulu: ArduinoJson lama hanya menyimpan alamat teksnya
+  d["ip"] = ip.c_str();
+  d["rssi"] = apMode ? 0 : (int)WiFi.RSSI();
+  d["mode"] = apMode ? "ap" : "sta";
+  otaFillInfo(d["ota"].to<JsonObject>());
+  char out[560];
+  serializeJson(d, out, sizeof(out));
+  sendToClient(src, num, out);
+}
+
+// Perintah yang tetap boleh lewat saat firmware sedang diperbarui / diperiksa: berhenti,
+// minta data, dan mengatur batas kecepatan. Selain itu ditolak supaya robot tetap diam.
+static bool isSafeCommand(const char* cmd) {
+  if (!strncmp(cmd, "GET", 3) || !strncmp(cmd, "INFO", 4) || !strncmp(cmd, "STOP", 4) ||
+      !strncmp(cmd, "SPD", 3) || !strncmp(cmd, "HELP", 4)) return true;
+  if (!strcmp(cmd, "MODE M") || !strcmp(cmd, "PUMP 0") || !strcmp(cmd, "BRUSH 0")) return true;
+  if (!strncmp(cmd, "DRV ", 4)) {
+    int x = 1, y = 1;
+    return sscanf(cmd + 4, "%d %d", &x, &y) == 2 && x == 0 && y == 0;
+  }
+  return false;
+}
+
 static void handleCommand(const char* raw, Source src, uint8_t num) {
-  // bersihkan: hanya ASCII yang bisa dicetak, maksimal 40 karakter
+  // bersihkan: hanya ASCII yang bisa dicetak, huruf besar, maksimal 40 karakter
   char cmd[41];
   size_t n = 0;
   while (*raw == ' ') raw++;
   for (; *raw && n < sizeof(cmd) - 1; raw++) {
-    if (*raw >= 32 && *raw < 127) cmd[n++] = *raw;
+    char c = *raw;
+    if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+    if (c >= 32 && c < 127) cmd[n++] = c;
   }
   while (n > 0 && cmd[n - 1] == ' ') n--;
   cmd[n] = '\0';
@@ -142,7 +271,20 @@ static void handleCommand(const char* raw, Source src, uint8_t num) {
     sendToClient(src, num, out);
     return;
   }
-  if (strcmp(cmd, "INFO") == 0) sendBridgeInfo(src, num);   // lalu tetap diteruskan ke Uno
+  if (strncmp(cmd, "OTA", 3) == 0 && (cmd[3] == '\0' || cmd[3] == ' ')) {
+    otaCommand(cmd + 3, src, num);           // urusan ESP sendiri, tidak diteruskan ke Uno
+    return;
+  }
+  const bool motion = !isSafeCommand(cmd);
+  if (motion && otaLocksMotion()) {
+    otaLockedReply(src, num);
+    return;
+  }
+  if (motion) otaNoteMotion();
+  if (strcmp(cmd, "INFO") == 0) {             // lalu tetap diteruskan ke Uno
+    sendBridgeInfo(src, num);
+    otaSendStatus(src, num);
+  }
   forwardToUno(cmd);
 }
 
@@ -151,6 +293,7 @@ static void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t lengt
     case WStype_CONNECTED:
       LOG("[ws] klien %u tersambung\n", num);
       sendBridgeInfo(SRC_WS, num);
+      otaSendStatus(SRC_WS, num);
       break;
     case WStype_DISCONNECTED:
       LOG("[ws] klien %u putus\n", num);
@@ -171,36 +314,6 @@ static void onWsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t lengt
 }
 
 // ------------------------------------------------------------------
-//  Data dari Uno -> semua klien
-// ------------------------------------------------------------------
-static void publishLine(char* line) {
-  String s(line);
-  ws.broadcastTXT(s);
-#if USE_MQTT
-  if (mqtt.connected()) mqtt.publish(topicTel.c_str(), line);
-#endif
-}
-
-static void readUno() {
-  while (UnoSerial.available() > 0) {
-    char c = (char)UnoSerial.read();
-    if (c == '\n') {
-      if (lineLen > 0 && !lineOverflow) {
-        lineBuf[lineLen] = '\0';
-        if (lineBuf[lineLen - 1] == '\r') lineBuf[--lineLen] = '\0';
-        if (lineBuf[0] == '{') publishLine(lineBuf);   // hanya JSON yang diteruskan; teks lain = sampah/debug
-      }
-      lineLen = 0;
-      lineOverflow = false;
-    } else if (lineLen < sizeof(lineBuf) - 1) {
-      lineBuf[lineLen++] = c;
-    } else {
-      lineOverflow = true;
-    }
-  }
-}
-
-// ------------------------------------------------------------------
 //  WiFi
 // ------------------------------------------------------------------
 static void startWifi() {
@@ -210,10 +323,10 @@ static void startWifi() {
   if (adaWifi) {
     WiFi.mode(WIFI_STA);
 #if defined(ESP32)
-    WiFi.setHostname(ROBOT_NAME);
+    WiFi.setHostname(NET_HOSTNAME);
     WiFi.setSleep(false);               // latensi lebih rendah
 #else
-    WiFi.hostname(ROBOT_NAME);
+    WiFi.hostname(NET_HOSTNAME);
     WiFi.setSleepMode(WIFI_NONE_SLEEP);
 #endif
     WiFi.setAutoReconnect(true);
@@ -222,6 +335,7 @@ static void startWifi() {
 
     unsigned long t0 = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - t0 < WIFI_TIMEOUT_MS) {
+      otaBeat();
       delay(250);
       LOG(".");
     }
@@ -243,8 +357,8 @@ static void startWifi() {
   WiFi.mode(WIFI_AP);
   String apName = String(ROBOT_NAME) + "-robot";
   WiFi.softAP(apName.c_str(), AP_PASS);
-  LOG("Mode AP: WiFi \"%s\", password \"%s\", alamat robot %s\n",
-      apName.c_str(), AP_PASS, WiFi.softAPIP().toString().c_str());
+  LOG("Mode AP: WiFi \"%s\", alamat robot %s (password ada di config.h / secrets.h)\n",
+      apName.c_str(), WiFi.softAPIP().toString().c_str());
 }
 
 // ------------------------------------------------------------------
@@ -290,20 +404,27 @@ static void mqttLoop() {
 void setup() {
 #if defined(ESP32)
   Serial.begin(115200);                                        // log lewat USB
+  UnoSerial.setRxBufferSize(1024);                             // telemetri tetap tertampung saat ESP sibuk
   UnoSerial.begin(UART_BAUD, SERIAL_8N1, UART_RX_PIN, UART_TX_PIN);
 #else
   UnoSerial.begin(UART_BAUD);
 #endif
+  forwardToUno("STOP");             // safe state: setiap kali ESP menyala atau restart, robot berhenti dulu
+
+  LOG("\n=== %s | %s | %s | firmware v%s ===\n", GROUP_ID, ROBOT_NAME, BOARD_NAME, FW_VERSION);
+  LOG("Penanda versi: %s\n", FW_ID);
+  otaEarlyBoot();                   // masa percobaan / rollback dicek sebelum hal lain
 
   startWifi();
+  otaSetup();                       // Push OTA ikut menyalakan mDNS dengan nama NET_HOSTNAME
 
-  if (MDNS.begin(ROBOT_NAME)) {
-    MDNS.addService("ws", "tcp", WS_PORT);
-    LOG("mDNS: %s.local\n", ROBOT_NAME);
-  }
+  if (!otaPushOn) MDNS.begin(NET_HOSTNAME);
+  MDNS.addService("ws", "tcp", WS_PORT);
+  LOG("mDNS: %s.local\n", NET_HOSTNAME);
 
   ws.begin();
   ws.onEvent(onWsEvent);
+  forwardToUno("INFO");             // minta versi firmware dan pengaturan Uno
 
 #if USE_MQTT
   String base = String(MQTT_PREFIX) + "/" + ROBOT_NAME + "/";
@@ -311,7 +432,7 @@ void setup() {
   topicTel = base + "tel";
   topicStatus = base + "status";
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
-  mqtt.setBufferSize(512);
+  mqtt.setBufferSize(640);
   mqtt.setCallback(mqttCallback);
 #endif
 }
@@ -320,8 +441,10 @@ void loop() {
 #if defined(ESP8266)
   MDNS.update();
 #endif
+  otaLoop();
   ws.loop();
   readUno();
+  paramSync(millis());
 #if USE_MQTT
   mqttLoop();
 #endif

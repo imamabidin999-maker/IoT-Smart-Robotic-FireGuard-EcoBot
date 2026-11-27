@@ -21,12 +21,18 @@
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
-#define FW_VERSION      "1.3.0"
+#define FW_VERSION      "1.4.0"
 #define SERIAL_BAUD     57600
 
 // ---- jumlah sensor yang terpasang ----
 #define FLAME_COUNT     2      // 2 (Kiri A0, Kanan A1) atau 3 (Kiri A0, Depan A1, Kanan A2)
 #define GAS_COUNT       2      // 2 (A3 dan A4) atau 1 (A3 saja)
+
+// ---- mode saat menyala ----
+// 0 = Manual: robot diam sampai diperintah dari dashboard. Lebih aman, termasuk saat ESP restart
+//     setelah update firmware. Mode Otomatis dinyalakan dari dashboard (atau ketik MODE A).
+// 1 = Otomatis: langsung siaga mencari api begitu menyala.
+#define BOOT_MODE_AUTO  0
 
 // ---- pin ----
 // Sensor api (output analog AO), urutan: Kiri, Depan, Kanan (kalau FLAME_COUNT 2: Kiri, Kanan)
@@ -64,6 +70,8 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
 #define BAT_DIVIDER_X100 200   // (R1+R2)/R2 x 100. Dua resistor sama = 200
 
 // ---- ambang sensor (nilai ADC 0..1023) ----
+// Nilai awal. Saat berjalan, ESP bridge bisa menggantinya lewat perintah CFG (lihat docs/OTA.md),
+// sehingga ambang bisa diubah lewat update firmware ESP tanpa meng-upload ulang Uno.
 // Sensor api: NILAI KECIL = api kuat/dekat. Atur potensio di modul sensor dulu.
 #define FLAME_WARN      700
 #define FLAME_DANGER    400
@@ -72,6 +80,13 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
 #define GAS_DANGER      550
 #define HYSTERESIS      40
 #define GAS_WARMUP_MS   20000UL   // MQ-2 butuh pemanasan
+
+// ---- cek kabel sensor ----
+// 1 = Uno rutin memeriksa apakah kabel AO tiap sensor masih tersambung. Pin analog yang kabelnya
+// lepas tidak terbaca 0, melainkan acak (bisa terlihat seperti ada api), jadi sensor yang
+// ketahuan lepas diabaikan di mode otomatis dan dilaporkan ke dashboard (fe/ge di telemetri).
+#define SENSOR_CHECK    1
+#define SENSOR_FLOAT_DIFF 500     // selisih bacaan LOW/HIGH yang dianggap "mengambang"
 
 // ---- nozzle & pompa ----
 #define NOZ_MIN         40
@@ -132,7 +147,12 @@ static const uint8_t GAS_PINS[2]   = { A3, A4 };
 enum Mode : uint8_t { MODE_MANUAL = 0, MODE_AUTO = 1 };
 enum State : uint8_t { ST_IDLE, ST_TURN, ST_APPROACH, ST_SPRAY, ST_REST, ST_MANUAL };
 
-static Mode  mode = MODE_AUTO;       // FireGuard menyala dalam mode otomatis (diam sampai ada api)
+static Mode  mode = BOOT_MODE_AUTO ? MODE_AUTO : MODE_MANUAL;
+
+// Ambang dan kecepatan mode otomatis yang bisa diubah saat berjalan lewat perintah CFG.
+static int   flameWarn = FLAME_WARN, flameDanger = FLAME_DANGER;
+static int   gasWarn = GAS_WARN, gasDanger = GAS_DANGER;
+static int   autoTurnPwm = AUTO_TURN_PWM, autoFwdPwm = AUTO_FWD_PWM;
 static State state = ST_IDLE;
 static unsigned long stateSince = 0;
 
@@ -141,6 +161,14 @@ static uint8_t flameLvl[FLAME_COUNT];
 static int   gasVal[GAS_COUNT];
 static uint8_t gasLvl[GAS_COUNT];
 static bool  sensorsPrimed = false;
+
+// 1 = kabel AO sensor itu tidak tersambung (lihat pinFloating)
+static uint8_t flameErr[FLAME_COUNT];
+static uint8_t gasErr[GAS_COUNT];
+static uint8_t flameErrCnt[FLAME_COUNT];
+static uint8_t gasErrCnt[GAS_COUNT];
+static uint8_t checkNext = 0;
+static unsigned long lastCheck = 0;
 
 static unsigned long warnSince = 0;  // sejak kapan ada tanda api (0 = tidak ada)
 static unsigned long calmSince = 0;  // sejak kapan tidak ada tanda api
@@ -182,7 +210,7 @@ static unsigned long lastRxMs = 0;
 // (diawali '{'), jadi pesan ini tidak pernah sampai ke dashboard.
 #define STR_(x) #x
 #define XSTR(x) STR_(x)
-enum Hint : uint8_t { H_NONE, H_AUTO, H_UNKNOWN, H_FMT_MODE, H_FMT_DRV, H_FMT_SPD, H_FMT_PUMP, H_FMT_NOZ };
+enum Hint : uint8_t { H_NONE, H_AUTO, H_UNKNOWN, H_FMT_MODE, H_FMT_DRV, H_FMT_SPD, H_FMT_PUMP, H_FMT_NOZ, H_FMT_CFG };
 static uint8_t lastHint = H_NONE;
 static unsigned long lastHintMs = 0;
 
@@ -216,7 +244,9 @@ static void hintDrive() {
 static void printHelp() {
   Serial.print(F("# Perintah: GET, INFO, MODE A (otomatis), MODE M (manual), STOP,\n"
                  "#   DRV x y (x belok, y maju, -100..100), SPD 0..255 (batas kecepatan),\n"
-                 "#   PUMP 1 / PUMP 0, NOZ " XSTR(NOZ_MIN) ".." XSTR(NOZ_MAX) ". Huruf kecil juga boleh.\n"));
+                 "#   PUMP 1 / PUMP 0, NOZ " XSTR(NOZ_MIN) ".." XSTR(NOZ_MAX) ",\n"
+                 "#   CFG F waspada bahaya (ambang api), CFG G waspada bahaya (gas), CFG A putar maju (PWM otomatis).\n"
+                 "#   Huruf kecil juga boleh.\n"));
 }
 
 // ==================================================================
@@ -291,28 +321,72 @@ static int readAvg(uint8_t pin, uint8_t n) {
 }
 
 static uint8_t flameLevelOf(uint8_t prev, int v) {
-  if (v <= FLAME_DANGER || (prev == 2 && v <= FLAME_DANGER + HYSTERESIS)) return 2;
-  if (v <= FLAME_WARN   || (prev >= 1 && v <= FLAME_WARN + HYSTERESIS))   return 1;
+  if (v <= flameDanger || (prev == 2 && v <= flameDanger + HYSTERESIS)) return 2;
+  if (v <= flameWarn   || (prev >= 1 && v <= flameWarn + HYSTERESIS))   return 1;
   return 0;
 }
 
 static uint8_t gasLevelOf(uint8_t prev, int v) {
-  if (v >= GAS_DANGER || (prev == 2 && v >= GAS_DANGER - HYSTERESIS)) return 2;
-  if (v >= GAS_WARN   || (prev >= 1 && v >= GAS_WARN - HYSTERESIS))   return 1;
+  if (v >= gasDanger || (prev == 2 && v >= gasDanger - HYSTERESIS)) return 2;
+  if (v >= gasWarn   || (prev >= 1 && v >= gasWarn - HYSTERESIS))   return 1;
   return 0;
+}
+
+// Pin analog yang tidak tersambung ke apa pun "mengambang": yang terbaca hanya sisa muatan.
+// Pin dipaksa LOW sebentar lalu dibaca, kemudian dipaksa HIGH lalu dibaca. Sensor yang tersambung
+// langsung menarik pin kembali ke nilainya sendiri, jadi dua bacaan hampir sama; pin mengambang
+// terbaca sekitar 0 lalu sekitar 1023. Arus yang lewat ke sensor sangat kecil dan hanya sesaat.
+// endHigh: pin api dibiarkan bermuatan HIGH (terbaca "tidak ada api"), pin gas LOW ("udara bersih"),
+// supaya pin yang mengambang tidak memicu alarm palsu.
+static bool pinFloating(uint8_t pin, bool endHigh) {
+  int first, second;
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, endHigh ? LOW : HIGH);
+  analogRead(pin);                       // kapasitor ADC ikut dikosongkan / diisi
+  pinMode(pin, INPUT);                   // INPUT sekaligus mematikan pull-up
+  delayMicroseconds(200);
+  first = analogRead(pin);
+  pinMode(pin, OUTPUT);
+  digitalWrite(pin, endHigh ? HIGH : LOW);
+  analogRead(pin);
+  pinMode(pin, INPUT);
+  delayMicroseconds(200);
+  second = analogRead(pin);
+  int diff = endHigh ? second - first : first - second;
+  return diff > SENSOR_FLOAT_DIFF;
+}
+
+// satu sensor per pemanggilan; status berubah setelah 2 kali berturut-turut terdeteksi
+static void checkOneSensor() {
+  uint8_t i = checkNext;
+  checkNext = (uint8_t)((checkNext + 1) % (FLAME_COUNT + GAS_COUNT));
+  if (i < FLAME_COUNT) {
+    bool fl = pinFloating(FLAME_PINS[i], true);
+    if (fl && flameErrCnt[i] < 3) flameErrCnt[i]++;
+    if (!fl && flameErrCnt[i] > 0) flameErrCnt[i]--;
+    if (flameErrCnt[i] >= 2) flameErr[i] = 1;
+    if (flameErrCnt[i] == 0) flameErr[i] = 0;
+  } else {
+    i -= FLAME_COUNT;
+    bool fl = pinFloating(GAS_PINS[i], false);
+    if (fl && gasErrCnt[i] < 3) gasErrCnt[i]++;
+    if (!fl && gasErrCnt[i] > 0) gasErrCnt[i]--;
+    if (gasErrCnt[i] >= 2) gasErr[i] = 1;
+    if (gasErrCnt[i] == 0) gasErr[i] = 0;
+  }
 }
 
 static void readSensors(unsigned long now) {
   for (uint8_t i = 0; i < FLAME_COUNT; i++) {
     int raw = readAvg(FLAME_PINS[i], 4);
     flameVal[i] = sensorsPrimed ? (flameVal[i] * 3 + raw) / 4 : raw;    // penghalus sederhana
-    flameLvl[i] = flameLevelOf(flameLvl[i], flameVal[i]);
+    flameLvl[i] = flameErr[i] ? 0 : flameLevelOf(flameLvl[i], flameVal[i]);   // kabel lepas: abaikan
   }
   bool warm = now < GAS_WARMUP_MS;
   for (uint8_t i = 0; i < GAS_COUNT; i++) {
     int raw = readAvg(GAS_PINS[i], 4);
     gasVal[i] = sensorsPrimed ? (gasVal[i] * 3 + raw) / 4 : raw;
-    gasLvl[i] = warm ? 0 : gasLevelOf(gasLvl[i], gasVal[i]);            // selama pemanasan jangan alarm
+    gasLvl[i] = (warm || gasErr[i]) ? 0 : gasLevelOf(gasLvl[i], gasVal[i]);   // pemanasan / kabel lepas: jangan alarm
   }
 #if HAS_BATTERY_SENSE
   unsigned long mv = (unsigned long)readAvg(PIN_BATTERY, 8) * 5000UL / 1023UL * BAT_DIVIDER_X100 / 100UL;
@@ -330,7 +404,7 @@ static void enterState(State s, unsigned long now) { state = s; stateSince = now
 static int8_t steerDir() {
   long num = 0, den = 0;
   for (uint8_t i = 0; i < FLAME_COUNT; i++) {
-    int w = (FLAME_WARN + HYSTERESIS) - flameVal[i];
+    int w = (flameWarn + HYSTERESIS) - flameVal[i];
     if (w > 0) { num += (long)w * FLAME_POS[i] * 100L; den += w; }
   }
   if (den == 0) return 0;
@@ -360,7 +434,7 @@ static void autoStep(unsigned long now) {
       if (anyFire) { motorStop(); enterState(ST_SPRAY, now); sprayStart = now; }
       else if (!anyWarn && calmSince && now - calmSince > 2000) { motorStop(); enterState(ST_IDLE, now); }
       else if (dir == 0) enterState(ST_APPROACH, now);
-      else motorSet(dir * AUTO_TURN_PWM, -dir * AUTO_TURN_PWM);   // putar di tempat
+      else motorSet(dir * autoTurnPwm, -dir * autoTurnPwm);   // putar di tempat
       break;
     }
 
@@ -368,7 +442,7 @@ static void autoStep(unsigned long now) {
       if (anyFire) { motorStop(); enterState(ST_SPRAY, now); sprayStart = now; }
       else if (!anyWarn && calmSince && now - calmSince > 2000) { motorStop(); enterState(ST_IDLE, now); }
       else if (steerDir() != 0) enterState(ST_TURN, now);
-      else motorSet(AUTO_FWD_PWM, AUTO_FWD_PWM);
+      else motorSet(autoFwdPwm, autoFwdPwm);
       break;
     }
 
@@ -446,13 +520,15 @@ static void printLvlArray(const uint8_t* a, uint8_t n) {
 static void sendInfo() {
   Serial.print(F("{\"t\":\"info\",\"robot\":\"fireguard\",\"fw\":\"" FW_VERSION "\",\"flame\":" FLAME_LABELS_JSON
                  ",\"flamePins\":" FLAME_PINS_JSON ",\"gas\":" GAS_LABELS_JSON ",\"gasPins\":" GAS_PINS_JSON ",\"th\":{\"fw\":"));
-  Serial.print(FLAME_WARN);   Serial.print(F(",\"fd\":"));
-  Serial.print(FLAME_DANGER); Serial.print(F(",\"gw\":"));
-  Serial.print(GAS_WARN);     Serial.print(F(",\"gd\":"));
-  Serial.print(GAS_DANGER);   Serial.print(F("},\"noz\":{\"min\":"));
+  Serial.print(flameWarn);    Serial.print(F(",\"fd\":"));
+  Serial.print(flameDanger);  Serial.print(F(",\"gw\":"));
+  Serial.print(gasWarn);      Serial.print(F(",\"gd\":"));
+  Serial.print(gasDanger);    Serial.print(F("},\"noz\":{\"min\":"));
   Serial.print(NOZ_MIN);      Serial.print(F(",\"max\":"));
   Serial.print(NOZ_MAX);      Serial.print(F(",\"home\":"));
-  Serial.print(NOZ_HOME);     Serial.print(F("},\"pump\":1}\n"));
+  Serial.print(NOZ_HOME);     Serial.print(F("},\"spd\":{\"turn\":"));
+  Serial.print(autoTurnPwm);  Serial.print(F(",\"fwd\":"));
+  Serial.print(autoFwdPwm);   Serial.print(F("},\"cfg\":1,\"pump\":1}\n"));
 }
 
 static void sendTelemetry(unsigned long now) {
@@ -463,6 +539,10 @@ static void sendTelemetry(unsigned long now) {
   Serial.print(F(",\"fs\":"));               printLvlArray(flameLvl, FLAME_COUNT);
   Serial.print(F(",\"gs\":"));               printIntArray(gasVal, GAS_COUNT);
   Serial.print(F(",\"gl\":"));               printLvlArray(gasLvl, GAS_COUNT);
+#if SENSOR_CHECK
+  Serial.print(F(",\"fe\":"));               printLvlArray(flameErr, FLAME_COUNT);
+  Serial.print(F(",\"ge\":"));               printLvlArray(gasErr, GAS_COUNT);
+#endif
   Serial.print(F(",\"gw\":"));               Serial.print(now < GAS_WARMUP_MS ? 1 : 0);
   Serial.print(F(",\"p\":"));                Serial.print(pumpOn ? 1 : 0);
   Serial.print(F(",\"na\":"));               Serial.print(nozCur);
@@ -484,6 +564,7 @@ static void handleLine(char* line, unsigned long now) {
   if (!cmd) return;
   char* a1 = strtok(NULL, " ");
   char* a2 = strtok(NULL, " ");
+  char* a3 = strtok(NULL, " ");
   bool manual = (mode == MODE_MANUAL);
 
   if (!strcmp(cmd, "GET"))  { sendTelemetry(now); return; }
@@ -523,6 +604,35 @@ static void handleLine(char* line, unsigned long now) {
     bool on = (a1[0] == '1');
     if (!manual) { if (on) hintAutoMode(now); return; }
     manualPump = on; lastPumpCmd = now;
+    return;
+  }
+  if (!strcmp(cmd, "CFG")) {
+    // CFG F <waspada> <bahaya>  : ambang sensor api (nilai kecil = api)
+    // CFG G <waspada> <bahaya>  : ambang sensor gas (nilai besar = gas)
+    // CFG A <putar> <maju>      : PWM mode otomatis
+    // Dua nilai dikirim sekaligus supaya pasangan ambang selalu diperiksa bersama.
+    if (!a1 || !a2 || !a3) { hintFormat(H_FMT_CFG, F("CFG F 700 400 (api), CFG G 350 550 (gas), CFG A 150 140 (PWM otomatis)"), now); return; }
+    long v1 = atol(a2), v2 = atol(a3);
+    bool ok = true;
+    if (a1[0] == 'F' && !a1[1]) {
+      ok = v2 >= 1 && v2 < v1 && v1 <= 1023;
+      if (ok) { flameWarn = (int)v1; flameDanger = (int)v2; }
+    } else if (a1[0] == 'G' && !a1[1]) {
+      ok = v1 >= 1 && v1 < v2 && v2 <= 1023;
+      if (ok) { gasWarn = (int)v1; gasDanger = (int)v2; }
+    } else if (a1[0] == 'A' && !a1[1]) {
+      ok = v1 >= 0 && v1 <= 255 && v2 >= 0 && v2 <= 255;
+      if (ok) { autoTurnPwm = (int)v1; autoFwdPwm = (int)v2; }
+    } else {
+      hintFormat(H_FMT_CFG, F("CFG F 700 400 (api), CFG G 350 550 (gas), CFG A 150 140 (PWM otomatis)"), now);
+      return;
+    }
+    if (!ok) {
+      if (hintOk(H_FMT_CFG, now))
+        Serial.print(F("# CFG ditolak: api waspada > bahaya, gas waspada < bahaya, nilai 1..1023 (PWM 0..255).\n"));
+      return;
+    }
+    sendInfo();                          // ESP dan dashboard melihat nilai baru
     return;
   }
   if (!strcmp(cmd, "NOZ")) {
@@ -576,13 +686,18 @@ void setup() {
 
   unsigned long now = millis();
   readSensors(now);
-  setMode(MODE_AUTO, now);
+  setMode(BOOT_MODE_AUTO ? MODE_AUTO : MODE_MANUAL, now);
   sendInfo();
-  Serial.print(F("# FireGuard " FW_VERSION " siap (" XSTR(FLAME_COUNT) " sensor api, " XSTR(GAS_COUNT) " MQ-2), "
-                 "mode OTOMATIS: diam sampai sensor api melihat api.\n"
+  Serial.print(F("# FireGuard " FW_VERSION " siap (" XSTR(FLAME_COUNT) " sensor api, " XSTR(GAS_COUNT) " MQ-2), "));
+#if BOOT_MODE_AUTO
+  Serial.print(F("mode OTOMATIS: diam sampai sensor api melihat api.\n"
                  "# Uji dari Serial Monitor: ketik MODE M, lalu DRV 0 60 (maju) atau DRV 60 0 (putar kanan).\n"
-                 "# Sensor api belum dipasang? Ketik MODE M dulu, pin yang kosong bisa terbaca seperti ada api.\n"
-                 "# HELP = daftar perintah.\n"));
+                 "# Sensor api belum dipasang? Ketik MODE M dulu, pin yang kosong bisa terbaca seperti ada api.\n"));
+#else
+  Serial.print(F("mode MANUAL: robot diam. Ketik MODE A (atau pilih Otomatis di dashboard) untuk mulai mencari api.\n"
+                 "# Uji dari Serial Monitor: DRV 0 60 (maju) atau DRV 60 0 (putar kanan).\n"));
+#endif
+  Serial.print(F("# HELP = daftar perintah.\n"));
 }
 
 void loop() {
@@ -591,6 +706,9 @@ void loop() {
   readSerial(now);
 
   if (now - lastSensor >= SENSOR_EVERY_MS) { lastSensor = now; readSensors(now); }
+#if SENSOR_CHECK
+  if (now - lastCheck >= 150) { lastCheck = now; checkOneSensor(); }   // tiap sensor dicek kira-kira tiap 0,6 detik
+#endif
 
   if (mode == MODE_AUTO) autoStep(now);
   else                   manualStep(now);

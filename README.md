@@ -25,18 +25,29 @@ dengan data sungguhan.
    Belum yakin kabel motornya benar? Upload dulu `firmware/tes_motor/`: roda diputar sendiri dengan urutan tetap,
    tanpa perlu mengetik perintah. Sketch robot juga bisa diuji langsung dari Serial Monitor (57600); Uno menjawab
    dengan baris berawalan `#` kalau perintah diabaikan atau salah ketik.
-3. **Upload `firmware/esp_bridge/` ke ESP** (ESP32 atau ESP8266): isi nama WiFi, password, dan `ROBOT_NAME`.
-   Library yang perlu dipasang lewat Library Manager: *WebSockets* (Markus Sattler), dan *PubSubClient* kalau mau MQTT.
-4. **Upload `firmware/esp32cam_stream/` ke ESP32-CAM**: isi WiFi dan `CAM_HOSTNAME`.
+3. **Upload `firmware/esp_bridge/` ke ESP** (ESP32 atau ESP8266). Pengaturan ada di `config.h`; nama/password WiFi
+   ditulis di `secrets.h` (salin dari `secrets.example.h`, tidak ikut ke GitHub). Tanpa diisi, robot membuat WiFi sendiri.
+   Library yang perlu dipasang lewat Library Manager: *WebSockets* (Markus Sattler), *ArduinoJson* (Benoit Blanchon, v7),
+   dan *PubSubClient* kalau mau MQTT.
+4. **Upload `firmware/esp32cam_stream/` ke ESP32-CAM**: isi `CAM_HOSTNAME`, dan WiFi di `secrets.h` kalau perlu.
 5. **Di dashboard**, klik ikon roda gigi → mode **Langsung** → isi alamat robot (mis. `fireguard.local` atau IP-nya) dan alamat kamera → Simpan.
    Pengaturan tersimpan di browser.
 
 Dashboard bisa dibuka lewat `file://` atau `http://`. Kalau dibuka lewat **https** (mis. GitHub Pages), browser memblokir koneksi
 `ws://` dan kamera `http://` ke robot. Untuk kasus itu pakai mode MQTT (tanpa kamera), atau jalankan dashboard dari laptop.
 
+### Update firmware lewat WiFi (OTA)
+
+ESP32 bridge bisa di-update tanpa kabel: dari Arduino IDE (Push OTA), atau ESP mengambil sendiri dari server
+(Pull OTA, dipasang setelah tombol **Pasang** di kartu *Update Firmware ESP* diklik dan robot diam). Firmware baru
+masuk masa percobaan: kalau gagal health check (mis. kabel sensor lepas), crash, atau macet, ESP kembali ke
+versi lama yang masih tersimpan di flash. Langkah praktikum C1–C3, tanda tangan digital, dan mengubah parameter
+robot lewat OTA ada di [docs/OTA.md](docs/OTA.md). Alat penerbit: `tools/ota/publish_fw.py` dan `tools/ota/keygen.py`
+(cukup Python 3).
+
 ### Mode MQTT (robot dan dashboard beda jaringan)
 
-Di `esp_bridge.ino` ubah `USE_MQTT` jadi `1` dan isi `MQTT_PREFIX`. Di dashboard pilih mode MQTT, isi alamat broker
+Di `config.h` (atau `secrets.h`) ESP bridge ubah `USE_MQTT` jadi `1` dan isi `MQTT_PREFIX`. Di dashboard pilih mode MQTT, isi alamat broker
 (contoh `wss://broker.hivemq.com:8884/mqtt`) dan **awalan topik yang sama**. Broker publik bisa dibaca siapa saja, jadi pakai
 awalan yang unik. Detail topik ada di [docs/PROTOKOL.md](docs/PROTOKOL.md).
 
@@ -66,6 +77,9 @@ Yang saya tambah atau perbaiki:
 - **Log aktivitas nyata** (bukan contoh), tersimpan di browser, bisa diekspor CSV.
 - **Alarm**: banner, bunyi, dan notifikasi browser saat api atau gas berbahaya (bisa dimatikan di pengaturan).
 - **Status sistem**: latensi, sinyal WiFi, alamat, uptime robot, versi firmware, baterai.
+- **Update Firmware ESP**: versi ESP, cek update, pasang dengan konfirmasi dua klik, progres, masa percobaan, dan hasil
+  terakhir (VALID / dikembalikan). Lewat MQTT hanya bisa mengecek.
+- **Kabel sensor lepas** (FireGuard): kartu sensor ditandai *Kabel lepas*, ada banner, dan sensor itu diabaikan di mode otomatis.
 - **EcoBot**: sapu nyala/mati dengan kecepatan yang bisa diatur, sapu bisa diangkat/diturunkan, mode otomatis menyapu sambil menghindari
   rintangan, kapasitas wadah dari sensor, lama menyapu, pengaman tabrakan di mode manual.
 - **FireGuard**: arah nozzle bisa diatur manual, jumlah sensor api/gas mengikuti firmware, pemanasan MQ-2 ditampilkan, pompa dibatasi lama nyalanya.
@@ -87,7 +101,7 @@ Beberapa hal di daftar komponen tidak sepenuhnya jelas bagi saya. Ini yang saya 
 | 6 ultrasonik EcoBot | Depan, Kiri-depan, Kanan-depan, Kiri, Kanan, **Wadah** (mengukur isi wadah) | urutan & pin di `docs/WIRING.md` |
 | Pompa FireGuard | pompa celup mini 3–6 V lewat modul relay di D4 | `PIN_PUMP`, `PUMP_ACTIVE_HIGH` (bawaan `0` untuk relay aktif-LOW; `1` untuk MOSFET/relay aktif-HIGH) |
 | Baterai | FireGuard: 4 sel 18650 seri (14,8 V) lewat buck, `BAT_CELLS 4`. EcoBot: 2 sel seri (7,4 V) | `BAT_CELLS 2` kalau FireGuard memakai 2 sel seri; satu sel tidak cukup untuk L298N dan Uno |
-| Mode saat menyala | FireGuard: otomatis (diam sampai ada api). EcoBot: manual (tidak langsung jalan sendiri) | `setup()` di sketch |
+| Mode saat menyala | **Manual** di kedua robot (tidak langsung jalan sendiri). Otomatis dinyalakan dari dashboard | FireGuard: `BOOT_MODE_AUTO 1`. EcoBot: `setup()` di sketch |
 
 ## Pengujian
 
@@ -95,25 +109,38 @@ Yang sudah dijalankan otomatis:
 
 - **Firmware Uno** dikompilasi dengan `avr-g++` untuk ATmega328P: nol peringatan dari sketch. Memori terpakai sekitar 11–13 KB flash
   dan 0,5 KB RAM (Uno punya 32 KB dan 2 KB).
-- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 32 skenario diperiksa
+- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 37 skenario diperiksa
   (JSON valid di tiap baris, siaga → belok → semprot → jeda, batas 15 detik pompa, dead-man, soft-start sapu, servo pengangkat,
-  menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah, perintah dari Serial Monitor: huruf kecil,
-  tanpa Enter, pesan `#` saat perintah diabaikan).
-- **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 59 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
-  (`tools/mock-robot`), termasuk server mati lalu hidup lagi, stream kamera macet, dan lima ukuran layar. Setiap tes memastikan
-  **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
+  menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah, perintah `CFG`, kabel sensor lepas, perintah dari
+  Serial Monitor: huruf kecil, tanpa Enter, pesan `#` saat perintah diabaikan).
+- **Update firmware ESP (OTA)** diuji di komputer (`tests/bridge-host`): `esp_bridge.ino` yang asli dijalankan di atas ESP32 tiruan
+  (flash dua slot, bootloader, NVS, server update, Uno palsu), dan 14 skenario mengikuti checkpoint praktikum: Push OTA + password
+  salah, Pull OTA + persetujuan + syarat robot diam, downgrade / MD5 salah / board salah / file diganti / lupa naik versi ditolak,
+  HTTPS dengan Root CA benar dan salah, FAULT_MODE 1/2/3, sensor dicabut → rollback, rollback lewat bootloader, tanda tangan
+  digital, dan parameter robot lewat OTA. Tanda tangan buatan `tools/ota` diperiksa dengan mbedTLS (library yang sama dengan ESP32)
+  dan OpenSSL.
+- **Alat OTA** (`tools/ota/test_ota_tools.py`): penerbitan manifest, penolakan file yang salah, tanda tangan.
+- **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 65 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
+  (`tools/mock-robot`), termasuk server mati lalu hidup lagi, stream kamera macet, lima ukuran layar, kartu Update Firmware ESP,
+  dan tampilan kabel sensor lepas. Setiap tes memastikan **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
+- **GitHub Actions** (`.github/workflows/ci.yml`) menjalankan semua tes di atas dan mengompilasi setiap sketch dengan core asli
+  (Uno, ESP32 3.0.7 dan terbaru, ESP32-CAM, ESP8266), lalu memeriksa file `.bin` ESP dengan `publish_fw.py`.
 
 ```bash
 # sekali saja
 cd tools/mock-robot && npm install && cd ../../tests && npm install
+sudo apt install libmbedtls-dev                  # untuk uji OTA (Linux)
 # lalu
 cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau bukan di /opt/pw-browsers)
+python3 -m unittest discover -s tools/ota -p "test_*.py"
 ```
 
 **Yang belum bisa saya uji, dan perlu Anda lihat sendiri:**
 
-- Sketch `esp_bridge` dan `esp32cam_stream` belum dikompilasi maupun dijalankan (core ESP tidak tersedia di lingkungan saya).
-  Ditulis dengan API standar, tapi anggap "belum terbukti" sampai Anda upload sendiri.
+- Sketch ESP (`esp_bridge`, `esp32cam_stream`) hanya dikompilasi (GitHub Actions) dan dijalankan di atas tiruan, belum di papan asli.
+  Terutama yang bergantung pada perangkat keras: rollback lewat bootloader, HTTPS ke GitHub Pages, dan OTA ESP32-CAM.
+- Deteksi kabel sensor lepas di Uno sudah diuji dengan pin tiruan; di papan asli, coba cabut kabel AO satu sensor dan pastikan
+  kartunya menulis *Kabel lepas* dalam beberapa detik.
 - Wiring dan perilaku di perangkat keras asli (arus motor, servo, sensor sebenarnya). Ambang sensor api/gas dan jarak EcoBot
   (`FLAME_*`, `GAS_*`, `*_CM`) adalah titik awal yang masuk akal, **bukan hasil kalibrasi**.
 - Hanya Chromium yang dipakai untuk menguji tampilan. Firefox dan Safari belum.
@@ -136,7 +163,9 @@ cd tests && npm test          # butuh g++ dan Chromium (set CHROMIUM_PATH kalau 
 | Dashboard terus "Menyambung..." dengan `fireguard.local` | alamat `.local` sering tidak jalan di Android, sebagian laptop Windows, dan WiFi kampus. Pakai alamat IP dari Serial Monitor |
 | Dashboard https tidak bisa tersambung | browser memblokir `ws://` dari halaman https. Buka lewat `file://` atau `http://` |
 | Roda tidak bergerak sama sekali | upload `firmware/tes_motor/` lalu cocokkan hasilnya dengan tabel di panduan rakit (langkah 3). Yang paling sering: GND Uno belum disatukan dengan GND L298N, jumper ENA/ENB dicabut tapi pin ENA/ENB belum disambung, atau baterai cuma satu sel |
-| Perintah di Serial Monitor tidak berpengaruh | baud harus 57600. FireGuard menyala dalam mode Otomatis: ketik `MODE M` dulu. Baca juga baris `#` yang dibalas Uno |
+| Perintah di Serial Monitor tidak berpengaruh | baud harus 57600. Kalau robot sudah dipindah ke Otomatis, ketik `MODE M` dulu. Baca juga baris `#` yang dibalas Uno |
+| Kartu sensor menulis *Kabel lepas* | kabel AO sensor itu lepas atau salah pin. Uno mengabaikannya sampai dipasang lagi |
+| Update firmware ESP ditahan / gagal / dikembalikan | baca pesan di kartu *Update Firmware ESP*, lalu tabel *Kalau macet* di [docs/OTA.md](docs/OTA.md) |
 | Roda berputar terbalik | `INVERT_LEFT` / `INVERT_RIGHT` di sketch |
 | Pompa menyala saat seharusnya mati | `PUMP_ACTIVE_HIGH 0` (modul relay aktif-LOW) |
 | Slider kecepatan tidak berpengaruh, motor selalu kencang | jumper ENA/ENB di L298N belum dicabut |

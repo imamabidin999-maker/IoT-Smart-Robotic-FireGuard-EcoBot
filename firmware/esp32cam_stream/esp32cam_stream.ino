@@ -18,28 +18,61 @@
       hampir pasti penyebabnya daya, bukan kode.
     - Board: "AI Thinker ESP32-CAM". Untuk upload: sambungkan GPIO0 ke GND, tekan reset, upload,
       lalu lepas GPIO0 dan reset lagi.
+
+  Update lewat WiFi (Push OTA, dari Arduino IDE lewat port jaringan "fireguard-cam"):
+    - Isi OTA_PASSWORD di secrets.h (salin dari secrets.example.h). Tanpa password, OTA mati.
+    - Tools > Partition Scheme > "Minimal SPIFFS (1.9MB APP with OTA)". Bawaan board AI-Thinker
+      adalah "Huge APP (No OTA)" yang TIDAK punya slot kedua, jadi upload lewat WiFi pasti gagal.
+    - Upload pertama tetap lewat USB (dengan partisi yang benar). Sesudah itu GPIO0 tidak perlu
+      disentuh lagi. Saat update dimulai, stream dihentikan dan lampu flash dimatikan.
 */
 
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <ArduinoOTA.h>
 #include "esp_http_server.h"
+#include "esp_ota_ops.h"
+
+// Password WiFi/OTA ditulis di secrets.h (tidak ikut ke GitHub). Lihat secrets.example.h.
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#endif
 
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
 #define CAM_HOSTNAME "fireguard-cam"     // "fireguard-cam" atau "ecobot-cam" -> http://fireguard-cam.local
+#define FW_VERSION   "1.1.0"             // naikkan setiap membuat versi baru
 
-// Daftar WiFi yang dicoba bergantian. Isi WiFi utama, dan (opsional) WiFi milik ESP bridge
-// robot (mode AP: "<nama robot>-robot"), supaya kamera tetap tersambung walau WiFi utama hilang.
-// Baris "NAMA_WIFI" yang belum diisi dilewati, jadi kalau ESP bridge memakai WiFi sendiri,
-// daftar ini tidak perlu diubah.
+#ifndef WIFI_SSID
+  #define WIFI_SSID     "NAMA_WIFI"
+#endif
+#ifndef WIFI_PASS
+  #define WIFI_PASS     "PASSWORD_WIFI"
+#endif
+#ifndef ROBOT_AP_SSID
+  #define ROBOT_AP_SSID "fireguard-robot" // WiFi yang dibuat ESP bridge sendiri (mode AP)
+#endif
+#ifndef AP_PASS
+  #define AP_PASS       "kopak1234"      // harus sama dengan AP_PASS di ESP bridge
+#endif
+#ifndef OTA_PASSWORD
+  #define OTA_PASSWORD  ""               // kosong = Push OTA mati
+#endif
+
+// Daftar WiFi yang dicoba bergantian: WiFi utama, lalu WiFi milik ESP bridge robot (mode AP),
+// supaya kamera tetap tersambung walau WiFi utama hilang. Baris "NAMA_WIFI" yang belum diisi
+// dilewati, jadi kalau ESP bridge memakai WiFi sendiri, tidak ada yang perlu diubah.
 struct Net { const char* ssid; const char* pass; };
 static const Net NETWORKS[] = {
-  { "NAMA_WIFI",        "PASSWORD_WIFI" },
-  { "fireguard-robot",  "kopak1234"     },
+  { WIFI_SSID,     WIFI_PASS },
+  { ROBOT_AP_SSID, AP_PASS   },
 };
 #define WIFI_TRY_MS 15000UL
+
+// Penanda versi di dalam file .bin (dibaca publish_fw.py dan bridge, lihat docs/OTA.md)
+const char FW_ID[] = "FWID:" CAM_HOSTNAME ":" FW_VERSION ";";
 
 #define CAM_VFLIP    0      // 1 kalau gambar terbalik (kamera dipasang terbalik)
 #define CAM_HMIRROR  0      // 1 kalau gambar seperti cermin
@@ -78,6 +111,8 @@ static unsigned long fpsT0 = 0, fpsFrames0 = 0;
 static const char* curSize = "vga";
 static int ledState = 0;
 static bool hasPsram = false;
+static bool otaOn = false;
+static volatile bool otaBusy = false;      // sedang menerima firmware: stream berhenti
 
 static void corsHeaders(httpd_req_t* req) {
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -99,7 +134,7 @@ static esp_err_t streamHandler(httpd_req_t* req) {
   corsHeaders(req);
 
   char part[64];
-  while (true) {
+  while (!otaBusy) {
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) { res = ESP_FAIL; break; }
 
@@ -133,9 +168,9 @@ static esp_err_t captureHandler(httpd_req_t* req) {
 static esp_err_t statusHandler(httpd_req_t* req) {
   char json[256];
   snprintf(json, sizeof(json),
-           "{\"fps\":%.1f,\"frames\":%lu,\"size\":\"%s\",\"rssi\":%d,\"heap\":%u,\"psram\":%s,\"led\":%d,\"up\":%lu}",
+           "{\"fps\":%.1f,\"frames\":%lu,\"size\":\"%s\",\"rssi\":%d,\"heap\":%u,\"psram\":%s,\"led\":%d,\"up\":%lu,\"fw\":\"%s\",\"ota\":%d}",
            fps, (unsigned long)frameCount, curSize, (int)WiFi.RSSI(), (unsigned)ESP.getFreeHeap(),
-           hasPsram ? "true" : "false", ledState, millis() / 1000UL);
+           hasPsram ? "true" : "false", ledState, millis() / 1000UL, FW_VERSION, otaOn ? 1 : 0);
   httpd_resp_set_type(req, "application/json");
   corsHeaders(req);
   return httpd_resp_send(req, json, strlen(json));
@@ -253,6 +288,46 @@ static bool initCamera() {
   return true;
 }
 
+// ---------------- update lewat WiFi (Push OTA) ----------------
+static void setupOta() {
+  if (strlen(OTA_PASSWORD) == 0) {
+    Serial.println("Push OTA mati: isi OTA_PASSWORD di secrets.h untuk upload lewat WiFi.");
+    return;
+  }
+  if (esp_ota_get_next_update_partition(NULL) == NULL) {
+    Serial.println("Push OTA tidak bisa dipakai: Partition Scheme tanpa slot OTA. Pilih "
+                   "\"Minimal SPIFFS (1.9MB APP with OTA)\" lalu upload lewat USB sekali.");
+    return;
+  }
+  ArduinoOTA.setHostname(CAM_HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.onStart([]() {
+    // kamera dan server dihentikan supaya memori dan waktu CPU dipakai untuk menulis flash
+    otaBusy = true;
+    ledState = 0;
+    digitalWrite(LED_GPIO_NUM, LOW);
+    if (streamHttpd) { httpd_stop(streamHttpd); streamHttpd = NULL; }
+    if (ctrlHttpd) { httpd_stop(ctrlHttpd); ctrlHttpd = NULL; }
+    esp_camera_deinit();
+    Serial.println("[OTA] Mulai menerima firmware. Stream dihentikan.");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    static int last = -10;
+    int pct = total ? (int)((progress * 100ULL) / total) : 0;
+    if (pct >= last + 10) { last = pct; Serial.printf("[OTA] Progres: %d%%\n", pct); }
+  });
+  ArduinoOTA.onEnd([]() { Serial.println("[OTA] Selesai. Restart..."); });
+  ArduinoOTA.onError([](ota_error_t error) {
+    // kamera sudah dimatikan: cara paling bersih untuk menyalakannya lagi adalah restart
+    Serial.printf("[OTA] Gagal (Error[%u]). Firmware lama tetap dipakai, restart dalam 2 detik.\n", (unsigned)error);
+    delay(2000);
+    ESP.restart();
+  });
+  ArduinoOTA.begin();                      // ikut menyalakan mDNS dengan nama CAM_HOSTNAME
+  otaOn = true;
+  Serial.printf("Push OTA siap: port jaringan \"%s\" di Arduino IDE.\n", CAM_HOSTNAME);
+}
+
 // ---------------- WiFi ----------------
 static bool connectWifi() {
   const size_t count = sizeof(NETWORKS) / sizeof(NETWORKS[0]);
@@ -282,6 +357,7 @@ void setup() {
   Serial.begin(115200);
   pinMode(LED_GPIO_NUM, OUTPUT);
   digitalWrite(LED_GPIO_NUM, LOW);
+  Serial.printf("\n=== %s | firmware v%s | %s ===\n", CAM_HOSTNAME, FW_VERSION, FW_ID);
 
   if (!initCamera()) {
     Serial.println("Kamera gagal dinyalakan. Cek kabel/modul kamera dan daya. Restart dalam 5 detik.");
@@ -294,7 +370,8 @@ void setup() {
     delay(1000);
   }
 
-  if (MDNS.begin(CAM_HOSTNAME)) {
+  setupOta();
+  if (otaOn || MDNS.begin(CAM_HOSTNAME)) {
     MDNS.addService("http", "tcp", 80);
     Serial.printf("mDNS: http://%s.local\n", CAM_HOSTNAME);
   }
@@ -305,6 +382,9 @@ void setup() {
 }
 
 void loop() {
+  if (otaOn) ArduinoOTA.handle();          // harus sering dipanggil: jangan pakai delay() panjang di loop
+  if (otaBusy) return;
+
   // hitung FPS tiap detik dari jumlah frame yang terkirim
   unsigned long now = millis();
   if (now - fpsT0 >= 1000) {
@@ -322,5 +402,5 @@ void loop() {
   } else {
     lostAt = 0;
   }
-  delay(50);
+  delay(10);
 }

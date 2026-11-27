@@ -2,12 +2,13 @@
   "name": "kopak-tests",
   "version": "1.0.0",
   "private": true,
-  "description": "Pengujian dashboard (Playwright + robot palsu) dan firmware Uno (di PC)",
+  "description": "Pengujian dashboard (Playwright + robot palsu), firmware Uno, dan alur OTA ESP bridge (di PC)",
   "type": "module",
   "scripts": {
-    "test": "node --test e2e/dashboard.e2e.mjs firmware-host/firmware.test.mjs",
+    "test": "node --test e2e/dashboard.e2e.mjs firmware-host/firmware.test.mjs bridge-host/core.test.mjs bridge-host/ota.test.mjs",
     "test:e2e": "node --test e2e/dashboard.e2e.mjs",
-    "test:firmware": "node --test firmware-host/firmware.test.mjs"
+    "test:firmware": "node --test firmware-host/firmware.test.mjs",
+    "test:ota": "node --test bridge-host/core.test.mjs bridge-host/ota.test.mjs"
   },
   "devDependencies": {
     "playwright-core": "^1.50.0"

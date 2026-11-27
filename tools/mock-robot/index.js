@@ -4,7 +4,8 @@
 
   Meniru apa yang dilakukan robot asli:
     - ESP bridge: WebSocket (bawaan port 8081/8082), jawab PING, kirim pesan "bridge", terusi perintah ke robot,
-      kirim "DRV 0 0" kalau klien putus (sama seperti firmware bridge)
+      kirim "DRV 0 0" kalau klien putus (sama seperti firmware bridge), dan alur update firmware (OTA CHECK /
+      OTA INSTALL) versi cepat dari simulator
     - MQTT (opsional): broker kecil yang bisa dipakai dashboard lewat WebSocket, topik <prefix>/<robot>/{cmd,tel,status}
     - Kamera ESP32-CAM: /stream (MJPEG), /status, /capture, /led, /res
     - Otak robotnya: simulator yang sama dengan mode Demo di dashboard
@@ -52,7 +53,8 @@ function start(opts) {
     if (handle.received.length > 2000) handle.received.splice(0, 500);
     handle.sim.handle(line);
   };
-  const bridgeInfo = () => JSON.stringify({ t: 'bridge', robot, fw: '1.0.0-mock', ip: '127.0.0.1', rssi: -48, mode: 'sta' });
+  const bridgeInfo = () => JSON.stringify(Object.assign({ t: 'bridge', robot, fw: '1.0.0-mock', ip: '127.0.0.1', rssi: -48, mode: 'sta' },
+    handle.sim.ota ? handle.sim.ota.bridgeFields() : {}));
   const pong = (n) => JSON.stringify({ t: 'pong', n, rssi: -48, up: Math.floor(process.uptime()) });
 
   // ---------- WebSocket (ESP bridge) ----------
@@ -82,7 +84,12 @@ function start(opts) {
     aedes.subscribe(`${base}/cmd`, (packet, cb) => {
       const text = packet.payload.toString().trim();
       if (/^PING\b/.test(text)) publishMqtt(pong(Number(text.split(/\s+/)[1]) || 0));
-      else { if (text === 'INFO') publishMqtt(bridgeInfo()); sendToSim(text, 'mqtt'); }
+      else if (/^OTA\s+INSTALL\b/i.test(text)) {
+        // sama seperti firmware: pasang update tidak boleh lewat MQTT (harus ada orang di dekat robot)
+        handle.received.push({ t: Date.now(), line: text, via: 'mqtt' });
+        publishMqtt(JSON.stringify({ t: 'ota', st: 'blocked', cur: handle.sim.ota.cur,
+          msg: 'Pasang update hanya bisa dari dashboard yang tersambung langsung ke robot, bukan lewat MQTT.' }));
+      } else { if (text === 'INFO') publishMqtt(bridgeInfo()); sendToSim(text, 'mqtt'); }
       cb();
     }, () => {});
     const publishMqtt = (line) => aedes.publish({ cmd: 'publish', qos: 0, retain: false, dup: false, topic: `${base}/tel`, payload: Buffer.from(line) }, () => {});

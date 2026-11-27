@@ -270,11 +270,15 @@ ESP32 VIN (5V) ◄───────── buck 5 V
 ESP32 GND ─────────────── GND bersama
 ```
 
-1. Buka `firmware/esp_bridge/esp_bridge.ino`. Ubah:
-   - `ROBOT_NAME` → `"ecobot"`
-   - `WIFI_SSID` dan `WIFI_PASS` → WiFi/hotspot yang akan dipakai. Kalau dibiarkan `"NAMA_WIFI"`, robot langsung
-     membuat WiFi sendiri (`ecobot-robot`, password `kopak1234`, alamat `192.168.4.1`)
-2. Pasang library **WebSockets** (oleh Markus Sattler) lewat Library Manager, pilih board ESP32, lalu upload lewat USB ESP32.
+1. Buka `firmware/esp_bridge/esp_bridge.ino`. Pengaturannya ada di tab `config.h`, tapi data khusus robot ini
+   ditulis di tab baru `secrets.h` (tombol `...` di kanan deretan tab → *New Tab*, salin isi
+   `secrets.example.h`). `secrets.h` tidak ikut ke GitHub, jadi password aman. Isi:
+   - `#define ROBOT_NAME "ecobot"`
+   - `WIFI_SSID` dan `WIFI_PASS` → WiFi/hotspot yang akan dipakai. Kalau tidak diisi, robot langsung membuat
+     WiFi sendiri (`ecobot-robot`, password `kopak1234` atau `AP_PASS` kalau diisi, alamat `192.168.4.1`)
+2. Pasang library **WebSockets** (oleh Markus Sattler) dan **ArduinoJson** (oleh Benoit Blanchon, versi 7) lewat
+   Library Manager, pilih board ESP32 (Partition Scheme **Default 4MB with spiffs**), lalu upload lewat USB ESP32.
+   Update berikutnya bisa lewat WiFi, lihat [OTA.md](OTA.md).
    Langkah rincinya (paket board ESP32, port, tombol BOOT) ada di [RAKIT-FIREGUARD.md](RAKIT-FIREGUARD.md) bagian 8, nomor 2.
 3. Buka Serial Monitor ESP32 (baud 115200). Catat alamat IP yang muncul, mis. `Tersambung. IP: 192.168.1.23`.
    Kalau WiFi gagal, ESP32 membuat WiFi sendiri bernama `ecobot-robot` (password `kopak1234`) dengan alamat `192.168.4.1`.
@@ -285,10 +289,11 @@ ESP32 GND ─────────────── GND bersama
 
 ## 8. ESP32-CAM
 
-1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. Ubah:
-   - `CAM_HOSTNAME` → `"ecobot-cam"`
-   - baris pertama `NETWORKS` → WiFi yang sama dengan ESP32 (biarkan `NAMA_WIFI` kalau ESP32 memakai WiFi sendiri)
-   - baris kedua `NETWORKS` → `{ "ecobot-robot", "kopak1234" }`
+1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. Ubah `CAM_HOSTNAME` → `"ecobot-cam"`, lalu buat tab
+   `secrets.h` dari `secrets.example.h` dan isi:
+   - `#define ROBOT_AP_SSID "ecobot-robot"` (WiFi milik ESP32 robot ini)
+   - `WIFI_SSID`/`WIFI_PASS` → WiFi yang sama dengan ESP32 (hapus kedua baris itu kalau ESP32 memakai WiFi sendiri)
+   - `AP_PASS` → sama dengan password WiFi robot (`kopak1234` kalau tidak diganti)
 2. Board: **AI Thinker ESP32-CAM**. Untuk upload: sambungkan **GPIO0 ke GND**, tekan reset, upload, lalu lepas
    GPIO0 dan tekan reset lagi. Catat IP di Serial Monitor (115200).
 3. Pasang di depan robot menghadap ke depan. Daya: **5V dan GND dari buck**, dengan **kapasitor 470 µF** di pin

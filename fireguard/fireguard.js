@@ -253,6 +253,10 @@
       d.log.add('ok', 'Kadar gas kembali normal');
     }
 
+    const lostNow = unplugged(tel), lostPrev = prev ? unplugged(prev) : [];
+    lostNow.filter((n) => !lostPrev.includes(n)).forEach((n) => d.log.add('warn', `${n} tidak tersambung (kabel AO lepas?) — diabaikan di mode otomatis`));
+    lostPrev.filter((n) => !lostNow.includes(n)).forEach((n) => d.log.add('ok', `${n} tersambung lagi`));
+
     const pNow = tel.p ? 1 : 0, pPrev = prev && prev.p ? 1 : 0;
     if (pNow && !pPrev) d.log.add('warn', tel.m === 'A' ? 'Pompa aktif otomatis — memadamkan api' : 'Pompa diaktifkan manual oleh operator');
     else if (!pNow && pPrev) d.log.add('info', 'Pompa dimatikan');
@@ -262,12 +266,22 @@
     }
   }
 
+  // nama sensor yang dilaporkan Uno kabelnya lepas (fe/ge = 1)
+  function unplugged(tel) {
+    const out = [];
+    (tel.fe || []).forEach((v, i) => { if (v === 1) out.push(`Sensor api ${layout.flame[i] ? layout.flame[i].label : `#${i + 1}`}`); });
+    (tel.ge || []).forEach((v, i) => { if (v === 1) out.push(layout.gas[i] ? layout.gas[i].label : `MQ-2 #${i + 1}`); });
+    return out;
+  }
+
   function updateAlerts(ctx, d) {
     const tel = ctx.tel;
     if (!ctx.alive || !tel) {
-      d.setAlert('fire', null); d.setAlert('gas', null); d.alarm.stop();
+      d.setAlert('fire', null); d.setAlert('gas', null); d.setAlert('sensor', null); d.alarm.stop();
       return;
     }
+    const lost = unplugged(tel);
+    d.setAlert('sensor', lost.length ? 'warn' : null, lost.length ? `SENSOR TIDAK TERSAMBUNG — ${lost.join(', ')} · Cek kabel AO, V, dan G` : null);
     const fsNow = tel.fs || [];
     const fireIdx = idxWhere(fsNow, (l) => l === 2);
     if (fireIdx.length) {
@@ -308,7 +322,8 @@
       let status = 'off', value = '—', text = 'Offline';
       if (alive && tel && tel.fl && typeof tel.fl[i] === 'number') {
         const lv = K.clamp((tel.fs && tel.fs[i]) | 0, 0, 2);
-        status = LEVEL_KEY[lv]; value = String(Math.round(tel.fl[i])); text = FLAME_TEXT[lv];
+        if (tel.fe && tel.fe[i] === 1) { status = 'err'; text = 'Kabel lepas'; }   // nilai pin mengambang tidak berarti
+        else { status = LEVEL_KEY[lv]; value = String(Math.round(tel.fl[i])); text = FLAME_TEXT[lv]; }
       }
       setAttr(c.root, 'data-status', status); setText(c.value, value); setText(c.status, text);
     });
@@ -320,12 +335,16 @@
       if (alive && tel && tel.gs && typeof tel.gs[i] === 'number') {
         const lv = K.clamp((tel.gl && tel.gl[i]) | 0, 0, 2);
         value = String(Math.round(tel.gs[i]));
-        if (warming) { status = 'off'; text = 'Pemanasan'; }
+        if (tel.ge && tel.ge[i] === 1) { status = 'err'; value = '—'; text = 'Kabel lepas'; }
+        else if (warming) { status = 'off'; text = 'Pemanasan'; }
         else { status = LEVEL_KEY[lv]; text = GAS_TEXT[lv]; }
       }
       setAttr(c.root, 'data-status', status); setText(c.value, value); setText(c.status, text);
     });
-    const note = warming ? 'Sensor gas MQ-2 sedang pemanasan. Pembacaan baru bisa dipercaya setelah beberapa puluh detik.' : '';
+    const lost = alive && tel ? unplugged(tel) : [];
+    const note = lost.length
+      ? `${lost.join(', ')} tidak tersambung (kabel AO lepas, atau V/G tertukar). Sensor itu diabaikan di mode otomatis sampai kabelnya dipasang lagi.`
+      : (warming ? 'Sensor gas MQ-2 sedang pemanasan. Pembacaan baru bisa dipercaya setelah beberapa puluh detik.' : '');
     el.sensorNote.hidden = !note;
     setText(el.sensorNote, note);
 

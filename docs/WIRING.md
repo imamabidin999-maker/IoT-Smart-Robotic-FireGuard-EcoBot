@@ -268,9 +268,13 @@ GND Uno ─────────────────────── GN
 - Daya papan ekstensi: saat uji cukup lewat kabel USB ESP32. Di robot, lewat jack DC papan (cek tulisan di
   dekatnya; banyak papan menerima 6,5–16 V, cocok untuk baterai 2S) atau 5 V dari buck ke pin 5V papan.
 - Sketch `esp_bridge` jalan di ESP32 dan ESP8266.
-- Isi `ROBOT_NAME` (`fireguard` atau `ecobot`). Kalau `WIFI_SSID` dibiarkan `NAMA_WIFI`, ESP langsung membuat
-  WiFi sendiri bernama `<robot>-robot` (password dari `AP_PASS`) dan dashboard tersambung ke `192.168.4.1`.
-  Kalau `WIFI_SSID` diisi tapi gagal tersambung dalam 15 detik, ESP juga membuat WiFi sendiri.
+- Pengaturan ada di `config.h`; nama/password WiFi dan password OTA ditulis di `secrets.h` (salin dari
+  `secrets.example.h`, tidak ikut ke GitHub). `ROBOT_NAME` diisi `fireguard` atau `ecobot`. Kalau `WIFI_SSID`
+  tidak diisi, ESP langsung membuat WiFi sendiri bernama `<robot>-robot` (password dari `AP_PASS`) dan
+  dashboard tersambung ke `192.168.4.1`. Kalau `WIFI_SSID` diisi tapi gagal tersambung dalam 15 detik, ESP
+  juga membuat WiFi sendiri.
+- Update lewat WiFi (OTA): lihat [OTA.md](OTA.md). Partition Scheme ESP32 harus punya slot OTA
+  (*Default 4MB with spiffs*).
 - Alamat di dashboard: `fireguard.local` / `ecobot.local` (mDNS), atau IP yang tampil di Serial Monitor
   (ESP32). Di HP Android, `.local` kadang tidak terbaca. Pakai IP kalau begitu.
 
@@ -280,8 +284,10 @@ Hanya butuh daya: 5 V stabil dan GND (bagian 1). Tidak ada kabel ke Uno.
 
 - Board di Arduino IDE: **AI Thinker ESP32-CAM**. Untuk upload: sambungkan **GPIO0 ke GND**, tekan reset,
   upload, lepas GPIO0, tekan reset lagi. Pakai adaptor USB-serial (atau papan ESP32-CAM-MB).
-- Isi daftar WiFi di `NETWORKS`. Baris kedua bisa diisi WiFi milik ESP bridge (mode AP) supaya kamera ikut
-  tersambung kalau WiFi utama hilang. Baris `NAMA_WIFI` yang belum diisi dilewati.
+- Kamera mencoba dua WiFi bergantian: WiFi utama (`WIFI_SSID`) lalu WiFi milik ESP bridge (`ROBOT_AP_SSID`,
+  mode AP), supaya kamera tetap tersambung kalau WiFi utama hilang. Isi di `secrets.h`; `WIFI_SSID` yang
+  belum diisi dilewati.
+- Untuk update lewat WiFi, pilih Partition Scheme *Minimal SPIFFS (1.9MB APP with OTA)*.
 - Alamat kamera di dashboard: `fireguard-cam.local` / `ecobot-cam.local`, atau IP-nya. Hanya satu penonton
   stream dalam satu waktu.
 

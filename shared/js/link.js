@@ -171,7 +171,8 @@
       this.transport = 'open';
       this._openedAt = Date.now();
       // di demo tidak ada ESP sungguhan; beri data "bridge" tiruan supaya kartu Status Sistem terisi
-      this._handleText(JSON.stringify({ t: 'bridge', robot: this.robot, ip: 'simulasi', rssi: -52, mode: 'demo' }));
+      const ota = this.sim.ota && typeof this.sim.ota.bridgeFields === 'function' ? this.sim.ota.bridgeFields() : {};
+      this._handleText(JSON.stringify(Object.assign({ t: 'bridge', robot: this.robot, ip: 'simulasi', rssi: -52, mode: 'demo' }, ota)));
       this.send('INFO');
       this.send('GET');
     }

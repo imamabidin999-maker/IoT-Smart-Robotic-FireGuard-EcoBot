@@ -11,8 +11,9 @@ Prinsipnya sengaja dibuat sederhana:
 
 - **Dashboard → robot**: teks satu baris, mis. `DRV 20 80`. Gampang diurai di Uno tanpa library.
 - **Robot → dashboard**: JSON satu baris (diakhiri `\n`). Uno mencetaknya langsung pakai `Serial.print`.
-- **ESP bridge hanya meneruskan.** Satu-satunya yang dijawab sendiri oleh ESP adalah `PING`,
-  dan ia menambahkan pesan `bridge` berisi alamat IP dan kekuatan sinyal.
+- **ESP bridge hampir hanya meneruskan.** Yang dijawab sendiri oleh ESP: `PING`, perintah `OTA ...`
+  (update firmware ESP, lihat [OTA.md](OTA.md)), dan pesan `bridge` berisi alamat IP, kekuatan sinyal, dan
+  status OTA. ESP juga bisa mengirim `CFG` ke Uno kalau parameter robot diisi di `config.h` ESP.
 - **Baris yang diawali `#` adalah pesan untuk manusia** yang menguji lewat Serial Monitor, misalnya
   `# Diabaikan: robot sedang mode OTOMATIS. Ketik MODE M dulu.` ESP bridge hanya meneruskan baris yang
   diawali `{`, jadi pesan ini tidak pernah sampai ke dashboard. Isinya boleh berubah antar versi firmware;
@@ -30,14 +31,23 @@ Prinsipnya sengaja dibuat sederhana:
 | `SPD <n>` | Batas kecepatan manual, 0..255 | Dikirim dashboard saat tersambung dan saat slider digeser |
 | `STOP` | Berhenti darurat: motor mati, pompa mati, masuk mode manual | |
 | `HELP` / `?` | Daftar perintah | Dijawab dengan baris `#`, untuk Serial Monitor |
+| **ESP bridge (tidak diteruskan ke Uno)** | | |
+| `OTA CHECK` | Cek apakah ada firmware ESP baru di server | Dijawab pesan `ota` |
+| `OTA INSTALL` | Pasang update yang tersedia | Hanya lewat WebSocket, ditolak lewat MQTT. Ditahan kalau robot belum diam |
+| `OTA STATUS` | Minta status OTA terakhir | |
 | **FireGuard** | | |
 | `PUMP 1` / `PUMP 0` | Pompa manual | `PUMP 1` juga harus diulang < 600 ms sekali, kalau tidak pompa mati sendiri |
 | `NOZ <sudut>` | Arah nozzle manual | Dibatasi `NOZ_MIN..NOZ_MAX` di firmware |
+| `CFG F <waspada> <bahaya>` | Ganti ambang sensor api (1..1023, waspada > bahaya) | Berlaku sampai Uno restart. Uno membalas `info` berisi nilai baru. Nilai yang salah ditolak tanpa mengubah apa pun |
+| `CFG G <waspada> <bahaya>` | Ganti ambang sensor gas (1..1023, waspada < bahaya) | idem |
+| `CFG A <putar> <maju>` | Ganti PWM mode otomatis (0..255) | idem |
 | **EcoBot (penyapu)** | | |
 | `BRUSH <persen>` | Motor sapu, 0..100 (0 = mati) | Nilai > 0 di bawah `BRUSH_MIN_PCT` (35) dinaikkan ke 35. Kecepatan naik pelan (soft-start) |
 | `LIFT 1` / `LIFT 0` | Angkat / turunkan sapu (servo) | |
 
-Perintah `DRV`, `PUMP`, `NOZ`, `BRUSH`, `LIFT` **diabaikan di mode otomatis**. Perintah yang tidak dikenal,
+Perintah `DRV`, `PUMP`, `NOZ`, `BRUSH`, `LIFT` **diabaikan di mode otomatis**. Selama ESP memperbarui
+firmware-nya atau sedang masa percobaan, ESP sendiri menolak semua perintah gerak; yang tetap lewat hanya
+`STOP`, `MODE M`, `DRV 0 0`, `PUMP 0`, `BRUSH 0`, `SPD`, `GET`, `INFO`, dan `HELP`. Perintah yang tidak dikenal,
 yang formatnya salah, atau yang kepanjangan (> 31 karakter) dibuang tanpa efek apa pun. Untuk semua kasus itu
 (kecuali yang kepanjangan) Uno menulis satu baris `#` sebagai penjelasan, paling sering sekali per 2 detik untuk
 pesan yang sama.
@@ -55,12 +65,16 @@ Semua pesan punya field `t` (jenis).
 FireGuard:
 
 ```json
-{"t":"info","robot":"fireguard","fw":"1.3.0",
- "flame":["Kiri","Depan","Kanan"],"flamePins":["A0","A1","A2"],
- "gas":["MQ-2"],"gasPins":["A3"],
+{"t":"info","robot":"fireguard","fw":"1.4.0",
+ "flame":["Kiri","Kanan"],"flamePins":["A0","A1"],
+ "gas":["MQ-2 #1","MQ-2 #2"],"gasPins":["A3","A4"],
  "th":{"fw":700,"fd":400,"gw":350,"gd":550},
- "noz":{"min":40,"max":140,"home":90},"pump":1}
+ "noz":{"min":40,"max":140,"home":90},
+ "spd":{"turn":150,"fwd":140},"cfg":1,"pump":1}
 ```
+
+`th` dan `spd` adalah nilai yang sedang dipakai (bisa berubah lewat `CFG`). `cfg: 1` berarti Uno menerima
+perintah `CFG` (firmware FireGuard 1.4.0 ke atas).
 
 Jumlah elemen `flame` dan `gas` menentukan berapa kartu sensor yang muncul di dashboard.
 Jadi mengganti `FLAME_COUNT` di firmware sudah cukup, dashboard tidak perlu diubah.
@@ -100,6 +114,8 @@ Field yang sama di kedua robot:
 | `gs` | nilai ADC sensor gas. **Nilai besar = gas tinggi** |
 | `gl` | level tiap sensor gas (0/1/2) |
 | `gw` | 1 selama MQ-2 masih pemanasan (level dipaksa 0) |
+| `fe` | 1 = kabel AO sensor api itu tidak tersambung (pin mengambang). Sensor itu diabaikan di mode otomatis (`fs` dipaksa 0) |
+| `ge` | sama untuk sensor gas (`gl` dipaksa 0) |
 | `p` | 1 kalau pompa benar-benar menyala |
 | `na` | sudut servo nozzle sekarang |
 
@@ -123,8 +139,39 @@ Field yang sama di kedua robot:
 ### `bridge` — dikirim ESP saat klien tersambung dan saat `INFO`
 
 ```json
-{"t":"bridge","robot":"fireguard","fw":"1.1.0","ip":"192.168.1.20","rssi":-55,"mode":"sta"}
+{"t":"bridge","robot":"fireguard","fw":"1.2.0","id":"FWID:fireguard-bridge:1.2.0;","board":"esp32",
+ "ip":"192.168.1.20","rssi":-55,"mode":"sta",
+ "ota":{"push":1,"pull":1,"sig":0,"rb":"app","st":"idle","good":"1.2.0","black":"1.3.0",
+        "last":"rolled_back","lastVer":"1.3.0","lastMsg":"v1.3.0 dibatalkan: health check gagal (...)",
+        "host":"fireguard","group":"kel04"}}
 ```
+
+`fw` adalah versi firmware **ESP** (versi Uno ada di pesan `info`). Isi `ota`: `push`/`pull` fitur yang
+aktif, `sig` 1 kalau tanda tangan diwajibkan, `rb` jenis rollback (`app` / `boot`), `good` versi terakhir
+yang lolos health check, `black` versi yang pernah gagal, `last*` hasil update terakhir.
+
+### `ota` — status update firmware ESP
+
+Dikirim ESP saat status berubah, saat klien tersambung, dan sebagai jawaban `OTA ...`.
+
+```json
+{"t":"ota","st":"downloading","cur":"1.2.0","ver":"1.3.0","pct":40,"msg":"Mengunduh firmware. Robot dihentikan selama update."}
+```
+
+| `st` | Arti |
+|---|---|
+| `idle` | belum ada apa-apa |
+| `off` | Pull OTA tidak bisa (server belum diisi, atau robot dalam mode AP) |
+| `checking` | sedang mengambil manifest |
+| `uptodate` | versi server tidak lebih baru |
+| `available` | ada versi baru (`ver`), menunggu `OTA INSTALL`. Bisa ada `notes` |
+| `blocked` | update ditahan; alasannya di `msg` (robot belum diam, versi pernah gagal, Uno terlalu lama, ...) |
+| `downloading` / `verifying` / `rebooting` | sedang memasang; `pct` progres unduhan |
+| `push` | sedang menerima firmware dari Arduino IDE (Push OTA) |
+| `trial` | firmware baru sedang masa percobaan; `msg` menyebut pemeriksaan yang belum lolos |
+| `valid` | firmware baru lolos health check |
+| `rolling_back` / `rolled_back` | firmware baru gagal, kembali ke versi lama |
+| `error` | gagal; firmware lama tetap dipakai. Alasannya di `msg` |
 
 ### `pong` — jawaban ESP untuk `PING`
 
@@ -141,7 +188,7 @@ Format pesannya sama persis, hanya dibungkus topik:
 | Topik | Arah | Isi |
 |---|---|---|
 | `<prefix>/<robot>/cmd` | dashboard → robot | perintah teks, satu per pesan |
-| `<prefix>/<robot>/tel` | robot → dashboard | JSON (`tel`, `info`, `bridge`, `pong`) |
+| `<prefix>/<robot>/tel` | robot → dashboard | JSON (`tel`, `info`, `bridge`, `ota`, `pong`) |
 | `<prefix>/<robot>/status` | ESP → semua | `online` / `offline` (retained; `offline` dikirim broker lewat *last will* kalau ESP mati mendadak) |
 
 `<robot>` adalah `fireguard` atau `ecobot`. `<prefix>` default `kopak`. Kalau memakai broker publik, **ganti prefix
@@ -168,3 +215,8 @@ dengan yang unik**, karena siapa pun yang tahu topiknya bisa membaca telemetri d
 - Servo digerakkan bertahap (bukan lompat) supaya arus tidak melonjak dan me-reset Uno.
 - Mode manual EcoBot menahan gerak maju kalau ada benda ≤ 6 cm di depan atau serong depan.
 - EcoBot: motor sapu dinaikkan pelan (soft-start) dan baru berputar setelah sapu turun (mode otomatis).
+- Uno menyala dalam mode Manual (`BOOT_MODE_AUTO 0`), dan ESP mengirim `STOP` setiap kali menyala.
+- FireGuard: sensor yang kabel AO-nya lepas dideteksi Uno dan diabaikan di mode otomatis (`fe`/`ge`), supaya
+  pin yang mengambang tidak dikira api.
+- Update firmware ESP: hanya dipasang setelah disetujui, robot harus diam, dan firmware baru harus lolos
+  health check (detailnya di [OTA.md](OTA.md)).

@@ -1,0 +1,108 @@
+# Pemeriksaan otomatis setiap ada perubahan:
+#   - tes   : logika firmware Uno, simulasi OTA ESP bridge, alat OTA (Python), dashboard (Playwright)
+#   - build : semua sketch dikompilasi dengan core asli (Uno, ESP32, ESP32-CAM, ESP8266), lalu file
+#             .bin ESP diperiksa publish_fw.py (penanda versi ada, muat di slot OTA)
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tes:
+    name: Tes firmware & alat OTA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pasang mbedTLS (dipakai simulasi OTA)
+        run: sudo apt-get update && sudo apt-get install -y libmbedtls-dev
+      - name: Firmware Uno (di PC)
+        run: node --test tests/firmware-host/firmware.test.mjs
+      - name: OTA ESP bridge (simulasi ESP32)
+        run: node --test tests/bridge-host/core.test.mjs tests/bridge-host/ota.test.mjs
+      - name: Alat OTA (publish_fw.py, keygen.py)
+        run: python3 -m unittest discover -s tools/ota -p "test_*.py" -v
+
+  dashboard:
+    name: Tes dashboard (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pasang dependensi
+        run: |
+          npm ci --prefix tools/mock-robot
+          npm ci --prefix tests
+          cd tests && npx playwright-core install --with-deps chromium
+      - name: Uji end-to-end dashboard
+        run: node --test tests/e2e/dashboard.e2e.mjs
+
+  build:
+    name: Compile (esp32 ${{ matrix.esp32 }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # versi lama 3.x yang masih banyak dipakai, dan versi terbaru
+        esp32: ["3.0.7", "terbaru"]
+    env:
+      ESP32_URL: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+      ESP8266_URL: https://arduino.esp8266.com/stable/package_esp8266com_index.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Pasang core & library
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls "$ESP32_URL" "$ESP8266_URL"
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr esp8266:esp8266
+          if [ "${{ matrix.esp32 }}" = "terbaru" ]; then arduino-cli core install esp32:esp32; else arduino-cli core install esp32:esp32@${{ matrix.esp32 }}; fi
+          arduino-cli lib install Servo WebSockets ArduinoJson PubSubClient
+          arduino-cli core list
+          arduino-cli lib list
+
+      - name: Uno (FireGuard, EcoBot, tes motor)
+        run: |
+          for s in fireguard_uno ecobot_uno tes_motor; do
+            arduino-cli compile --fqbn arduino:avr:uno --warnings default "firmware/$s"
+          done
+
+      - name: ESP bridge (ESP32, pengaturan bawaan)
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default --output-dir out/bridge firmware/esp_bridge
+          python3 tools/ota/publish_fw.py --root out/srv --group kel04 --base-url http://192.168.10.23:8000 \
+            --channel both --tanpa-tanda-tangan --bin out/bridge/esp_bridge.ino.bin
+
+      - name: ESP bridge (secrets.h, HTTPS, MQTT, tanda tangan, rollback bootloader, FAULT_MODE 2)
+        run: |
+          cd firmware/esp_bridge
+          cp secrets.example.h secrets.h
+          sed -i 's#http://192.168.10.23:8000#https://contoh.github.io/fireguard-ota#' secrets.h
+          echo '#define USE_MQTT 1' >> secrets.h
+          sed -i 's/^#define FW_VERSION "[0-9.]*"/#define FW_VERSION "9.9.9"/; s/^#define ROLLBACK_BOOTLOADER  0/#define ROLLBACK_BOOTLOADER  1/; s/^#define FAULT_MODE 0/#define FAULT_MODE 2/; s/^#define PARAM_API_WASPADA    0/#define PARAM_API_WASPADA    650/; s/^#define PARAM_API_BAHAYA     0/#define PARAM_API_BAHAYA     350/' config.h
+          python3 ../../tools/ota/keygen.py --key "$RUNNER_TEMP/kunci.pem" --header ota_pubkey.h
+          cd ../..
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default --output-dir out/bridge2 firmware/esp_bridge
+          python3 tools/ota/publish_fw.py --root out/srv2 --group kel04 --base-url https://contoh.github.io/fireguard-ota \
+            --channel both --key "$RUNNER_TEMP/kunci.pem" --bin out/bridge2/esp_bridge.ino.bin
+          grep -q '"version": "9.9.9"' out/srv2/kel04/manifest-fireguard-bridge.json
+          git checkout -- firmware/esp_bridge && rm -f firmware/esp_bridge/secrets.h
+
+      - name: ESP bridge (ESP8266, hanya Push OTA)
+        run: arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --warnings default firmware/esp_bridge
+
+      - name: ESP32-CAM (partisi dengan OTA)
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32cam:PartitionScheme=min_spiffs --warnings default --output-dir out/cam firmware/esp32cam_stream
+          python3 tools/ota/publish_fw.py --root out/srv-cam --group kel04 --base-url http://192.168.10.23:8000 \
+            --slot-size 0x1E0000 --channel both --tanpa-tanda-tangan --bin out/cam/esp32cam_stream.ino.bin

@@ -212,10 +212,13 @@
             <dt>Sinyal WiFi</dt><dd id="sysRssi">—</dd>
             <dt>Alamat</dt><dd id="sysIp">—</dd>
             <dt>Robot aktif</dt><dd id="sysUptime">—</dd>
-            <dt>Firmware</dt><dd id="sysFw">—</dd>
+            <dt>Firmware Uno</dt><dd id="sysFw">—</dd>
             <dt>Baterai</dt><dd id="sysBat">—</dd>
           </dl>
         </section>
+
+        <!-- U: Update firmware ESP (isi kartu dibuat oleh shared/js/ota-panel.js) -->
+        <section class="card" id="cardOta"></section>
 
       </div>
     </div>
@@ -237,6 +240,7 @@
 <script src="../shared/js/activity-log.js"></script>
 <script src="../shared/js/alarm.js"></script>
 <script src="../shared/js/settings.js"></script>
+<script src="../shared/js/ota-panel.js"></script>
 <script src="../shared/js/dashboard.js"></script>
 <script src="../shared/js/sim-core.js"></script>
 <script src="sim.js"></script>
