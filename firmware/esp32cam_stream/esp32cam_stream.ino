@@ -147,7 +147,7 @@ static esp_err_t streamHandler(httpd_req_t* req) {
     esp_camera_fb_return(fb);
 
     if (res != ESP_OK) break;          // klien menutup koneksi
-    frameCount++;
+    frameCount = frameCount + 1;       // (++ pada variabel volatile sudah usang di C++20)
   }
   return res;
 }

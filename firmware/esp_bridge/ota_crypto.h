@@ -11,14 +11,51 @@
 
 #include <stdint.h>
 #include <string.h>
-#include "mbedtls/version.h"
-#include "mbedtls/sha256.h"
+#if __has_include("mbedtls/build_info.h")
+  #include "mbedtls/build_info.h"     // mbedTLS 3.x (core ESP32 3.x) dan 4.x (core ESP32 4.x)
+#else
+  #include "mbedtls/version.h"        // mbedTLS 2.x (core ESP32 2.x, pengujian di PC)
+#endif
 #include "mbedtls/pk.h"
 #include "mbedtls/md.h"
+#if MBEDTLS_VERSION_MAJOR >= 4
+  // mbedTLS 4 tidak lagi menyediakan fungsi SHA-256 lama; hash dan kunci lewat PSA Crypto
+  #include "psa/crypto.h"
+#else
+  #include "mbedtls/sha256.h"
+#endif
 #include "ota_core.h"
 
 namespace ota {
 
+#if MBEDTLS_VERSION_MAJOR >= 4
+class Sha256 {
+ public:
+  Sha256() : op_(psa_hash_operation_init()) {}
+  ~Sha256() { psa_hash_abort(&op_); }
+  Sha256(const Sha256&) = delete;
+  Sha256& operator=(const Sha256&) = delete;
+
+  void begin() {
+    psa_crypto_init();                 // boleh dipanggil berkali-kali
+    psa_hash_abort(&op_);
+    ok_ = psa_hash_setup(&op_, PSA_ALG_SHA_256) == PSA_SUCCESS;
+  }
+  void update(const uint8_t* data, size_t n) {
+    if (ok_) ok_ = psa_hash_update(&op_, data, n) == PSA_SUCCESS;
+  }
+  // kalau gagal, hasilnya nol semua: sidik jari tidak akan cocok, jadi firmware tidak dipasang
+  void finish(uint8_t out[32]) {
+    size_t len = 0;
+    if (!ok_ || psa_hash_finish(&op_, out, 32, &len) != PSA_SUCCESS || len != 32) memset(out, 0, 32);
+    ok_ = false;
+  }
+
+ private:
+  psa_hash_operation_t op_;
+  bool ok_ = false;
+};
+#else
 class Sha256 {
  public:
   Sha256() { mbedtls_sha256_init(&ctx_); }
@@ -51,6 +88,7 @@ class Sha256 {
  private:
   mbedtls_sha256_context ctx_;
 };
+#endif
 
 inline void sha256Of(const void* data, size_t n, uint8_t out[32]) {
   Sha256 s;
@@ -72,10 +110,18 @@ inline int verifySignature(const char* pubPem, const char* message, const char* 
   uint8_t hash[32];
   sha256Of(message, strlen(message), hash);
 
+#if MBEDTLS_VERSION_MAJOR >= 4
+  if (psa_crypto_init() != PSA_SUCCESS) return 3;   // mbedTLS 4: PK berjalan di atas PSA
+#endif
   mbedtls_pk_context pk;
   mbedtls_pk_init(&pk);
   int r = mbedtls_pk_parse_public_key(&pk, (const unsigned char*)pubPem, strlen(pubPem) + 1);
+#if MBEDTLS_VERSION_MAJOR >= 4
+  if (r == 0 && !mbedtls_pk_can_do_psa(&pk, PSA_ALG_ECDSA(PSA_ALG_SHA_256), PSA_KEY_USAGE_VERIFY_HASH)) r = 2;
+#else
   if (r == 0 && !mbedtls_pk_can_do(&pk, MBEDTLS_PK_ECDSA)) r = 2;
+#endif
+  // tanda tangan DER (SEQUENCE r, s) diterima mbedtls_pk_verify di mbedTLS 2, 3, maupun 4
   if (r == 0) r = mbedtls_pk_verify(&pk, MBEDTLS_MD_SHA256, hash, sizeof(hash), sig, sigLen);
   mbedtls_pk_free(&pk);
   return r;
