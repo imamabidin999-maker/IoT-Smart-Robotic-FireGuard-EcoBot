@@ -45,10 +45,10 @@ robot punya roda dan pompa yang bisa bergerak sendiri kalau update dilakukan sem
    compile). Library Manager:
    **WebSockets** (Markus Sattler) dan **ArduinoJson** (Benoit Blanchon, versi 7.x).
 
-   **Samakan versi core ESP32 di semua laptop kelompok.** Core 4.x mengganti cara login Push OTA dari MD5 ke
-   SHA-256. ESP yang di-upload dari laptop ber-core 4.x akan menolak Push OTA dari laptop yang masih core 3.x
-   (*Authentication Failed* walaupun password benar). Kebalikannya masih bisa, karena alat upload core 4.x
-   masih mengenali cara login lama.
+   **Samakan versi core ESP32 di semua laptop kelompok.** Mulai core 3.3.1, login Push OTA pindah dari MD5 ke
+   SHA-256. ESP yang di-upload dengan core 3.3.1 ke atas (termasuk 4.x) menolak Push OTA dari laptop yang
+   core-nya 3.3.0 ke bawah (*Authentication Failed* walaupun password benar). Alat upload core 3.3.2 ke atas
+   masih bisa login ke ESP lama, tapi paling aman semua laptop memakai versi core yang sama.
 2. **Partition Scheme** (menu Tools), penting untuk OTA:
    - ESP32 DevKit (*ESP32 Dev Module*): **Default 4MB with spiffs**. Jangan *Huge APP (No OTA)*.
    - ESP32-CAM (*AI Thinker ESP32-CAM*): **Minimal SPIFFS (1.9MB APP with OTA)**. Bawaan board ini adalah
@@ -432,7 +432,7 @@ Dashboard juga mencatat setiap langkah update di kartu **Aktivitas Terbaru** (bi
 | Gejala | Penyebab dan solusi |
 |---|---|
 | Port jaringan tidak muncul di Arduino IDE | Laptop beda WiFi dengan robot, firewall memblokir Arduino IDE, atau `OTA_PASSWORD` masih kosong (Serial Monitor menulis `Push OTA mati`) |
-| *Authentication Failed* padahal password sudah benar | Laptop ini memakai core ESP32 yang lebih lama daripada laptop yang terakhir meng-upload ESP (core 4.x login dengan SHA-256, core 3.x masih MD5). Samakan versi core di Boards Manager, atau upload ulang ESP lewat USB dari laptop ini |
+| *Authentication Failed* padahal password sudah benar | Laptop ini memakai core ESP32 yang lebih lama daripada laptop yang terakhir meng-upload ESP (core 3.3.1 ke atas login dengan SHA-256, versi sebelumnya MD5). Samakan versi core di Boards Manager, atau upload ulang ESP lewat USB dari laptop ini |
 | `Error[1]` / `begin error` saat Push OTA | Partition Scheme tanpa OTA. Pilih *Default 4MB with spiffs*, upload lewat USB sekali |
 | `Sketch too big` saat compile ESP32 | Firmware tidak muat di slot OTA 1,25 MB. Dengan core ESP32 4.x, bridge sudah memakai sekitar 92–94% slot (core 3.x sekitar 87–89%), jadi menambah fitur bisa membuatnya penuh. Pilih Partition Scheme **Minimal SPIFFS (1.9MB APP with OTA)**, upload lewat USB sekali, lalu terbitkan dengan `publish_fw.py ... --slot-size 0x1E0000`. Jangan pilih *Huge APP*: skema itu tidak punya slot kedua untuk OTA |
 | Upload berhenti di tengah / timeout | WiFi lemah. Dekatkan laptop ke robot |
