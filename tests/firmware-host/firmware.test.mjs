@@ -80,6 +80,8 @@ class Host {
   }
   analog(pin, v) { return this.step(`A ${pin} ${v}`); }
   float(pin, on = true) { return this.step(`FL ${pin} ${on ? 1 : 0}`); }
+  /** sensor ultrasonik di pin ECHO ini tidak menjawab (tanpa daya / kabel Trig lepas) */
+  dead(pin, on = true) { return this.step(`UD ${pin} ${on ? 1 : 0}`); }
   echo(pin, cm) { return this.step(`E ${pin} ${cm}`); }
   async q(kind, pin) { return (await this.step(`${kind} ${pin}`))[0]; }
   tel() { return this.tels[this.tels.length - 1]; }
@@ -103,7 +105,7 @@ function variant(name, file, pairs) {
   return compile(name, p);
 }
 
-let binFG, binEB, binFGv, binEBr, binFG4;
+let binFG, binEB, binFGv, binEBt, binFG4;
 before(() => {
   // rangkaian lengkap di panduan: 3 sensor api, 1 MQ-2, pompa aktif-HIGH, baterai 2 sel seri,
   // menyala langsung dalam mode otomatis
@@ -114,7 +116,12 @@ before(() => {
     ['#define PUMP_ACTIVE_HIGH 0', '#define PUMP_ACTIVE_HIGH 1'],
     ['#define BAT_CELLS       4', '#define BAT_CELLS       2'],
   ]);
-  binEB = compile('ecobot', path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'));
+  // rancangan awal di panduan: sapu lewat transistor/MOSFET (PWM), baterai 2 sel seri
+  binEB = variant('ecobot_ref', 'firmware/ecobot_uno/ecobot_uno.ino', [
+    ['#define BRUSH_USE_PWM   0', '#define BRUSH_USE_PWM   1'],
+    ['#define BRUSH_ACTIVE_HIGH 0', '#define BRUSH_ACTIVE_HIGH 1'],
+    ['#define BAT_CELLS       4', '#define BAT_CELLS       2'],
+  ]);
   binFGv = variant('fireguard_variant', 'firmware/fireguard_uno/fireguard_uno.ino', [
     ['#define BOOT_MODE_AUTO  0', '#define BOOT_MODE_AUTO  1'],
     ['#define BAT_CELLS       4', '#define BAT_CELLS       2'],
@@ -122,10 +129,8 @@ before(() => {
   ]);
   // sketch bawaan = robot tim: 2 sensor api, 2 MQ-2, relay aktif-LOW, baterai 4 sel seri lewat buck
   binFG4 = compile('fireguard', path.join(root, 'firmware/fireguard_uno/fireguard_uno.ino'));
-  binEBr = variant('ecobot_relay', 'firmware/ecobot_uno/ecobot_uno.ino', [
-    ['#define BRUSH_USE_PWM   1', '#define BRUSH_USE_PWM   0'],
-    ['#define BRUSH_ACTIVE_HIGH 1', '#define BRUSH_ACTIVE_HIGH 0'],
-  ]);
+  // sketch bawaan = robot tim: sapu lewat relay aktif-LOW, baterai 4 sel seri lewat buck
+  binEBt = compile('ecobot', path.join(root, 'firmware/ecobot_uno/ecobot_uno.ino'));
 });
 
 // ====================================================================
@@ -510,12 +515,14 @@ test('EcoBot sapu: info & telemetri JSON valid, urutan sensor benar, posisi isti
   const info = h.infos[0];
   assert.equal(info.robot, 'ecobot');
   assert.equal(info.kind, 'sweeper');
-  assert.equal(info.fw, '2.1.0');
+  assert.equal(info.fw, '2.2.0');
   assert.deepEqual(info.us, ['Depan', 'Kiri-depan', 'Kanan-depan', 'Kiri', 'Kanan', 'Wadah']);
   assert.deepEqual(info.pins, ['A0', 'A1', 'A2', 'A3', 'A4', 'D13']);
-  assert.deepEqual(info.th, { det: 50, near: 20, side: 10, binE: 20, binF: 4 });
+  assert.deepEqual(info.th, { det: 50, near: 20, side: 10, binE: 20, binF: 4, obst: 22, diag: 18 });
   assert.deepEqual(info.lift, { up: 80, down: 20 });
   assert.deepEqual(info.brush, { pwm: 1, min: 35, auto: 70 });
+  assert.deepEqual(info.spd, { turn: 130, fwd: 110 });
+  assert.equal(info.cfg, 1);
 
   await h.t(2500);
   const t = h.tel();
@@ -523,6 +530,7 @@ test('EcoBot sapu: info & telemetri JSON valid, urutan sensor benar, posisi isti
   assert.equal(t.st, 'manual');
   assert.deepEqual(t.d, [50, 120, -1, 9, 25, 12], 'jarak tiap sensor, -1 = tidak ada pantulan');
   assert.deepEqual(t.l, [1, 0, 0, 2, 1, 0], 'level: 1 terdeteksi (<= 50), 2 dekat (samping <= 10)');
+  assert.deepEqual(t.ue, [0, 0, 0, 0, 0, 0], 'semua sensor tersambung');
   assert.ok(Math.abs(t.bin - 50) <= 2, `wadah harus sekitar 50%, dapat ${t.bin}`);
   assert.equal(t.br, 0); assert.equal(t.bt, 0);
   assert.equal(t.lf, 1, 'sapu terangkat saat menyala');
@@ -589,15 +597,112 @@ test('EcoBot sapu manual: servo pengangkat turun & naik bertahap', async () => {
   assert.equal(await liftAngle(h), 80);
 });
 
-test('EcoBot sapu: modul relay (BRUSH_USE_PWM 0, aktif LOW) hanya nyala/mati', async () => {
-  const h = mk(binEBr);
+test('EcoBot bawaan (robot tim): sapu lewat relay aktif-LOW hanya nyala/mati, 4 sel seri membagi dua PWM roda', async () => {
+  const h = mk(binEBt);
   await ebBoot(h);
+  assert.equal(h.infos[0].fw, '2.2.0');
+  assert.deepEqual(h.infos[0].brush, { pwm: 0, min: 35, auto: 70 });
   assert.equal(await h.q('QP', EB.BRUSH), 1, 'relay aktif LOW: HIGH = mati saat menyala');
   await h.send('BRUSH 50'); await h.t(60);
   assert.equal(await h.q('QP', EB.BRUSH), 0, 'LOW = sapu menyala');
   await h.send('BRUSH 0'); await h.t(60);
   assert.equal(await h.q('QP', EB.BRUSH), 1);
   assert.equal(await brushPwm(h), 0, 'mode relay tidak memakai PWM');
+
+  await h.send('SPD 255');
+  await h.send('DRV 0 100'); await h.t(20);
+  assert.deepEqual(await ebMotors(h), { l: 127, r: 127 }, '255 skala 2 sel -> 127 di baterai 4 sel');
+  await h.t(260);
+  assert.equal(h.tel().sp, 255, 'telemetri tetap memakai skala 2 sel');
+  await h.t(700);
+  assert.deepEqual(await ebMotors(h), { l: 0, r: 0 }, 'dead-man');
+
+  await h.send('MODE A'); await h.t(1200);
+  assert.equal(h.tel().st, 'sweep');
+  assert.equal(await h.q('QP', EB.BRUSH), 0, 'mode otomatis menyalakan sapu (relay LOW)');
+  assert.deepEqual(await ebMotors(h), { l: 55, r: 55 }, 'SWEEP_PWM 110 -> 55');
+  assert.deepEqual(h.tel().ue, [0, 0, 0, 0, 0, 0]);
+});
+
+test('EcoBot: kabel Echo lepas dan sensor yang tidak menjawab dideteksi (ue), mode otomatis berhenti sampai tersambung lagi', async () => {
+  const h = mk(binEBt);
+  await ebBoot(h, { depan: 0, kidepan: 0, kadepan: 0, kiri: 0, kanan: 0 });
+  await h.t(1500);
+  assert.deepEqual(h.tel().ue, [0, 0, 0, 0, 0, 0], 'ruangan kosong (tidak ada pantulan) bukan berarti kabel lepas');
+
+  let n = h.notes.length;
+  await h.float(EB.E.depan);                        // kabel Echo sensor Depan dicabut
+  await h.t(1500);
+  assert.deepEqual(h.tel().ue, [1, 0, 0, 0, 0, 0]);
+  assert.equal(h.tel().d[0], -1);
+  assert.ok(notesSince(h, n).some((l) => /^# Sensor Depan: pin Echo HIGH terus\. Kabel Echo lepas\?/.test(l)), notesSince(h, n).join('\n'));
+
+  await h.send('MODE A'); await h.t(800);
+  assert.equal(h.tel().st, 'sensor', 'robot buta ke depan: tidak boleh jalan');
+  assert.deepEqual(await ebMotors(h), { l: 0, r: 0 });
+  assert.equal(await h.q('QP', EB.BRUSH), 1, 'sapu mati');
+  assert.equal(h.tel().lf, 1, 'sapu terangkat');
+
+  n = h.notes.length;
+  await h.float(EB.E.depan, false);                 // dipasang lagi
+  await h.t(1500);
+  assert.deepEqual(h.tel().ue, [0, 0, 0, 0, 0, 0]);
+  assert.ok(notesSince(h, n).some((l) => /^# Sensor Depan tersambung lagi/.test(l)));
+  assert.equal(h.tel().st, 'sweep', 'lanjut menyapu');
+
+  n = h.notes.length;
+  await h.dead(EB.E.kanan);                         // sensor samping tanpa daya
+  await h.t(1500);
+  assert.deepEqual(h.tel().ue, [0, 0, 0, 0, 2, 0]);
+  assert.ok(notesSince(h, n).some((l) => /^# Sensor Kanan tidak menjawab\. Cek kabel VCC, GND, dan Trig/.test(l)), notesSince(h, n).join('\n'));
+  assert.equal(h.tel().st, 'sweep', 'sensor samping saja: tetap menyapu, hanya dilaporkan');
+
+  await h.dead(EB.E.kidepan);                       // sensor serong depan tidak menjawab
+  await h.t(1500);
+  assert.deepEqual(h.tel().ue, [0, 2, 0, 0, 2, 0]);
+  assert.equal(h.tel().st, 'sensor');
+  assert.deepEqual(await ebMotors(h), { l: 0, r: 0 });
+
+  await h.send('MODE M'); await h.t(100);
+  await h.send('DRV 0 60'); await h.t(20);
+  assert.notDeepEqual(await ebMotors(h), { l: 0, r: 0 }, 'mode manual tetap bisa dikendalikan');
+});
+
+test('EcoBot: CFG mengganti jarak menghindar dan PWM otomatis saat berjalan, nilai yang salah ditolak', async () => {
+  const h = mk(binEB);
+  await ebBoot(h, { depan: 26 });
+  await h.send('MODE A'); await h.t(1500);
+  assert.equal(h.tel().st, 'sweep', 'benda 26 cm masih lebih jauh dari OBST_CM 22');
+  assert.deepEqual(await ebMotors(h), { l: 110, r: 110 });
+
+  let n = h.infos.length;
+  await h.send('CFG A 150 120'); await h.t(100);
+  assert.deepEqual(h.infos[n].spd, { turn: 150, fwd: 120 }, 'Uno membalas dengan info berisi nilai baru');
+  assert.deepEqual(await ebMotors(h), { l: 120, r: 120 });
+
+  n = h.infos.length;
+  await h.send('cfg d 30 20'); await h.t(100);
+  assert.equal(h.infos[n].th.obst, 30);
+  assert.equal(h.infos[n].th.diag, 20);
+  await h.t(100);
+  assert.equal(h.tel().st, 'avoid', 'sekarang 26 cm sudah dianggap rintangan');
+
+  n = h.infos.length;
+  const nn = h.notes.length;
+  for (const bad of ['CFG D 3 20', 'CFG D 30 101', 'CFG A 300 100', 'CFG A -1 100']) { await h.send(bad); await h.t(2100); }
+  assert.equal(h.infos.length, n, 'nilai yang salah tidak mengubah apa pun');
+  assert.ok(notesSince(h, nn).some((l) => /^# CFG ditolak: jarak 5\.\.100 cm, PWM 0\.\.255/.test(l)), notesSince(h, nn).join('\n'));
+  await h.send('CFG X 1 2'); await h.t(50);
+  assert.ok(h.notes.some((l) => /^# Format: CFG D 22 18/.test(l)));
+});
+
+test('EcoBot: pembagi 10k+10k ditolak saat BAT_CELLS 4, karena A5 bisa lebih dari 5 V', () => {
+  const sketch = 'firmware/ecobot_uno/ecobot_uno.ino';
+  assert.throws(() => variant('ecobot_4s_divider_bad', sketch, [['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1']]));
+  assert.doesNotThrow(() => variant('ecobot_4s_divider_ok', sketch, [
+    ['#define HAS_BATTERY_SENSE 0', '#define HAS_BATTERY_SENSE 1'],
+    ['#define BAT_DIVIDER_X100 200', '#define BAT_DIVIDER_X100 400'],
+  ]));
 });
 
 test('EcoBot sapu manual: DRV, dead-man, dan pengaman tabrakan depan (termasuk serong)', async () => {
@@ -751,7 +856,7 @@ test('Serial Monitor: pesan pembuka menyebut versi & mode, baris lain tetap JSON
   assert.ok(fg.infos.length >= 1 && fg.tels.length >= 1, 'info & telemetri tetap terkirim');
   const eb = mk(binEB);
   await ebBoot(eb);
-  assert.ok(eb.notes.some((l) => /^# EcoBot 2\.1\.0 siap, mode MANUAL/.test(l)), eb.notes.join('\n'));
+  assert.ok(eb.notes.some((l) => /^# EcoBot 2\.2\.0 siap, mode MANUAL/.test(l)), eb.notes.join('\n'));
 });
 
 test('Serial Monitor: perintah huruf kecil diterima', async () => {
@@ -842,7 +947,7 @@ test('Serial Monitor: DRV yang diterima menyebut PWM tiap sisi, sekali per gerak
 
 test('EcoBot Serial Monitor: pin ECHO memakai pull-up, sensor yang belum dipasang terbaca -1 dan tidak menahan gerak', async () => {
   const h = mk(binEB);
-  await ebBoot(h);                        // echo 0 = tidak ada pantulan, seperti sensor belum dipasang
+  await ebBoot(h);                        // echo 0 = tidak ada pantulan (ruangan kosong)
   for (const pin of Object.values(EB.E)) assert.equal(await h.q('QM', pin), 2, `pin ${pin} harus INPUT_PULLUP`);
   await h.t(300);
   assert.deepEqual(h.tel().d.slice(0, 5), [-1, -1, -1, -1, -1]);

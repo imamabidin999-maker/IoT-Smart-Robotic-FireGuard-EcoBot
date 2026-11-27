@@ -1,7 +1,8 @@
 /*
   ESP32-CAM — streaming kamera untuk dashboard FireGuard / EcoBot
   ------------------------------------------------------------------
-  Sketch yang sama dipakai di dua robot. Bedanya cuma CAM_HOSTNAME di bawah.
+  Sketch yang sama dipakai di dua robot. Bedanya cuma ROBOT_NAME: bawaannya "fireguard", untuk
+  EcoBot tulis #define ROBOT_NAME "ecobot" di secrets.h (lihat secrets.example.h).
   Khusus modul ESP32-CAM AI-Thinker (yang paling umum).
 
   Endpoint (semua GET, semua mengirim header CORS supaya bisa dipanggil dari dashboard):
@@ -42,7 +43,10 @@
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
-#define CAM_HOSTNAME "fireguard-cam"     // "fireguard-cam" atau "ecobot-cam" -> http://fireguard-cam.local
+#ifndef ROBOT_NAME
+  #define ROBOT_NAME "fireguard"          // "fireguard" atau "ecobot", sama dengan ESP bridge robot ini
+#endif
+#define CAM_HOSTNAME ROBOT_NAME "-cam"    // nama kamera: fireguard-cam / ecobot-cam (http://<nama>.local)
 #define FW_VERSION   "1.1.0"             // naikkan setiap membuat versi baru
 
 #ifndef WIFI_SSID
@@ -52,7 +56,7 @@
   #define WIFI_PASS     "PASSWORD_WIFI"
 #endif
 #ifndef ROBOT_AP_SSID
-  #define ROBOT_AP_SSID "fireguard-robot" // WiFi yang dibuat ESP bridge sendiri (mode AP)
+  #define ROBOT_AP_SSID ROBOT_NAME "-robot" // WiFi yang dibuat ESP bridge sendiri (mode AP)
 #endif
 #ifndef AP_PASS
   #define AP_PASS       "kopak1234"      // harus sama dengan AP_PASS di ESP bridge

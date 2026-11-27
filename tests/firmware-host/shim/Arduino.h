@@ -44,8 +44,10 @@ extern int g_analog[64];
 extern unsigned long g_echo_us[64];
 extern int g_servo_angle[64];
 extern int g_pin_mode[64];
-extern int g_float[64];        // 1 = kabel pin analog lepas (mengambang)
+extern int g_float[64];        // 1 = kabel pin itu lepas (mengambang)
 extern int g_charge[64];       // sisa muatan pin yang mengambang (0..1023)
+extern int g_us_dead[64];      // 1 = sensor ultrasonik di pin ECHO ini tidak menjawab (VCC/GND/Trig lepas)
+extern unsigned long g_busy_until[64];   // pin ECHO masih HIGH sampai waktu ini (pulsa "tidak ada benda")
 
 inline unsigned long millis() { return g_now_ms; }
 inline unsigned long micros() { return g_now_ms * 1000UL; }
@@ -53,7 +55,15 @@ inline void delayMicroseconds(unsigned int) {}
 inline void delay(unsigned long) {}
 inline void pinMode(uint8_t pin, uint8_t mode) { g_pin_mode[pin] = mode; }
 inline void digitalWrite(uint8_t pin, uint8_t v) { g_pin_state[pin] = v; }
-inline int digitalRead(uint8_t pin) { return g_pin_state[pin]; }
+// Pin input yang kabelnya lepas: dengan pull-up terbaca HIGH, tanpa pull-up mengikuti sisa muatannya.
+inline int digitalRead(uint8_t pin) {
+  if (g_pin_mode[pin] != OUTPUT) {
+    if (g_float[pin]) return g_pin_mode[pin] == INPUT_PULLUP ? HIGH : (g_charge[pin] > 511 ? HIGH : LOW);
+    if (g_us_dead[pin]) return LOW;
+    if (g_now_ms < g_busy_until[pin]) return HIGH;
+  }
+  return g_pin_state[pin];
+}
 inline void analogWrite(uint8_t pin, int v) { g_pin_pwm[pin] = v; }
 // Pin yang dipakai sebagai OUTPUT terbaca sesuai level yang ditulis; pin yang mengambang hanya
 // menyimpan muatan terakhirnya (seperti pin AVR asli tanpa apa pun yang tersambung).
@@ -62,7 +72,14 @@ inline int analogRead(uint8_t pin) {
   if (g_float[pin]) return g_charge[pin];
   return g_analog[pin];
 }
-inline unsigned long pulseIn(uint8_t pin, uint8_t, unsigned long) { return g_echo_us[pin]; }
+// Sensor ultrasonik palsu. Ada benda: pulsa sepanjang jaraknya. Tidak ada benda: pulseIn menyerah,
+// tapi pin ECHO masih HIGH 38 ms (seperti HC-SR04 asli). Kabel Echo lepas / sensor mati: tidak ada pulsa.
+inline unsigned long pulseIn(uint8_t pin, uint8_t, unsigned long) {
+  if (g_float[pin] || g_us_dead[pin]) return 0;
+  if (g_echo_us[pin]) return g_echo_us[pin];
+  g_busy_until[pin] = g_now_ms + 38;
+  return 0;
+}
 
 // random() gaya Arduino, deterministik supaya pengujian bisa diulang
 extern unsigned long g_rand_state;

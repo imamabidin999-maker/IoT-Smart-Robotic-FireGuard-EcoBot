@@ -8,4 +8,4 @@
 #define WIFI_PASS     "password-wifi"
 #define AP_PASS       "ganti-password-ap"      // HARUS sama dengan AP_PASS di secrets.h ESP bridge
 #define OTA_PASSWORD  "password-ota-kelompok"  // password upload lewat WiFi
-// #define ROBOT_AP_SSID "ecobot-robot"        // untuk kamera di robot EcoBot
+// #define ROBOT_NAME    "ecobot"              // kamera di robot EcoBot: nama ecobot-cam, ikut WiFi ecobot-robot

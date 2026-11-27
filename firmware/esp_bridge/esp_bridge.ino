@@ -74,6 +74,9 @@ const char FW_ID[] = "FWID:" FW_PRODUCT ":" FW_VERSION ";";
 #if PARAM_API_WASPADA > 1023 || PARAM_API_BAHAYA > 1023 || PARAM_GAS_WASPADA > 1023 || PARAM_GAS_BAHAYA > 1023 || PARAM_PWM_PUTAR > 255 || PARAM_PWM_MAJU > 255
   #error "Nilai PARAM_ di config.h terlalu besar (ambang maks 1023, PWM maks 255)"
 #endif
+#if (PARAM_JARAK_DEPAN && (PARAM_JARAK_DEPAN < 5 || PARAM_JARAK_DEPAN > 100)) || (PARAM_JARAK_SERONG && (PARAM_JARAK_SERONG < 5 || PARAM_JARAK_SERONG > 100))
+  #error "PARAM_JARAK_DEPAN dan PARAM_JARAK_SERONG harus 5..100 cm"
+#endif
 
 enum Source : uint8_t { SRC_WS, SRC_MQTT };
 
@@ -161,9 +164,15 @@ static void bridgeService() {
 // ------------------------------------------------------------------
 //  Parameter robot dari config.h -> Uno (perintah CFG)
 // ------------------------------------------------------------------
-static void paramWanted(int th[4], int spd[2]) {
-  th[0] = PARAM_API_WASPADA; th[1] = PARAM_API_BAHAYA;
-  th[2] = PARAM_GAS_WASPADA; th[3] = PARAM_GAS_BAHAYA;
+// eco: Uno yang tersambung adalah EcoBot (dari pesan info), yang memakai CFG D, bukan CFG F/G
+static void paramWanted(int th[4], int spd[2], bool eco) {
+  if (eco) {
+    th[0] = PARAM_JARAK_DEPAN; th[1] = PARAM_JARAK_SERONG;
+    th[2] = 0;                 th[3] = 0;
+  } else {
+    th[0] = PARAM_API_WASPADA; th[1] = PARAM_API_BAHAYA;
+    th[2] = PARAM_GAS_WASPADA; th[3] = PARAM_GAS_BAHAYA;
+  }
   spd[0] = PARAM_PWM_PUTAR;  spd[1] = PARAM_PWM_MAJU;
 }
 
@@ -172,13 +181,22 @@ static unsigned long lastParamSend = 0;
 // Uno membalas CFG dengan pesan info berisi nilai barunya, jadi perintah hanya dikirim ulang
 // kalau nilainya memang masih berbeda (mis. Uno baru saja restart dan kembali ke nilai bawaan).
 static void paramSync(unsigned long now) {
-  int th[4], spd[2];
-  paramWanted(th, spd);
-  if (!(th[0] || th[1] || th[2] || th[3] || spd[0] || spd[1])) return;
   if (!robot.info || !robot.cfg || (lastParamSend && now - lastParamSend < 5000UL)) return;
+  const bool eco = ota::isEcoBot(robot);
+  int th[4], spd[2];
+  paramWanted(th, spd, eco);
+  if (!(th[0] || th[1] || th[2] || th[3] || spd[0] || spd[1])) return;
   char cmd[32];
   bool sent = false;
-  if ((th[0] || th[1]) && robot.haveTh) {
+  if (eco && (th[0] || th[1]) && robot.haveTh) {
+    int d = th[0] ? th[0] : robot.th[0], g = th[1] ? th[1] : robot.th[1];
+    if ((d != robot.th[0] || g != robot.th[1]) && d >= 5 && d <= 100 && g >= 5 && g <= 100) {
+      snprintf(cmd, sizeof(cmd), "CFG D %d %d", d, g);
+      forwardToUno(cmd);
+      sent = true;
+    }
+  }
+  if (!eco && (th[0] || th[1]) && robot.haveTh) {
     int w = th[0] ? th[0] : robot.th[0], d = th[1] ? th[1] : robot.th[1];
     if ((w != robot.th[0] || d != robot.th[1]) && d >= 1 && d < w && w <= 1023) {
       snprintf(cmd, sizeof(cmd), "CFG F %d %d", w, d);
@@ -186,7 +204,7 @@ static void paramSync(unsigned long now) {
       sent = true;
     }
   }
-  if ((th[2] || th[3]) && robot.haveTh) {
+  if (!eco && (th[2] || th[3]) && robot.haveTh) {
     int w = th[2] ? th[2] : robot.th[2], d = th[3] ? th[3] : robot.th[3];
     if ((w != robot.th[2] || d != robot.th[3]) && w >= 1 && w < d && d <= 1023) {
       snprintf(cmd, sizeof(cmd), "CFG G %d %d", w, d);

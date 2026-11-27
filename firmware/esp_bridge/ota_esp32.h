@@ -714,7 +714,7 @@ static void otaFillHealth(ota::HealthInput& in) {
   in.needUno = OTA_BUTUH_UNO;
   in.robot = ROBOT_NAME;
   in.fault = (FAULT_MODE == 1);
-  paramWanted(in.wantTh, in.wantSpd);
+  paramWanted(in.wantTh, in.wantSpd, ota::isEcoBot(robot));
 }
 
 static void otaTrialStep(uint32_t now) {

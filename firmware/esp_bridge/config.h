@@ -125,15 +125,24 @@
 #define UJI_ROOT_CA_SALAH    0
 
 // ==================================================================
-//  Parameter robot yang dikirim ESP ke Uno (FireGuard)
+//  Parameter robot yang dikirim ESP ke Uno
 // ==================================================================
-// Ambang sensor dan PWM mode otomatis ada di Uno. Kalau diisi di sini, ESP mengirim perintah CFG
-// ke Uno setiap kali tersambung, jadi parameter robot bisa diubah cukup dengan update firmware ESP
-// lewat OTA (demo "ubah satu parameter proyek lewat OTA"). 0 = pakai nilai bawaan Uno.
-// Aturan: api waspada > api bahaya (nilai kecil = api), gas waspada < gas bahaya, nilai 1..1023.
+// Ambang sensor, jarak menghindar, dan PWM mode otomatis ada di Uno. Kalau diisi di sini, ESP mengirim
+// perintah CFG ke Uno setiap kali tersambung, jadi parameter robot bisa diubah cukup dengan update
+// firmware ESP lewat OTA (demo "ubah satu parameter proyek lewat OTA"). 0 = pakai nilai bawaan Uno.
+// ESP memilih sendiri perintah yang cocok dari jenis Uno yang tersambung (FireGuard atau EcoBot).
+
+// FireGuard: api waspada > api bahaya (nilai kecil = api), gas waspada < gas bahaya, nilai 1..1023
 #define PARAM_API_WASPADA    0          // mis. 650
 #define PARAM_API_BAHAYA     0          // mis. 350
 #define PARAM_GAS_WASPADA    0
 #define PARAM_GAS_BAHAYA     0
+
+// EcoBot: jarak menghindar di mode otomatis, 5..100 cm (bawaan Uno: depan 22, serong 18)
+#define PARAM_JARAK_DEPAN    0          // mis. 30
+#define PARAM_JARAK_SERONG   0          // mis. 25
+
+// Keduanya: PWM mode otomatis (skala 2 sel). FireGuard: putar mencari api / maju mendekat.
+// EcoBot: putar menghindar / maju menyapu.
 #define PARAM_PWM_PUTAR      0          // 1..255
 #define PARAM_PWM_MAJU       0          // 1..255

@@ -44,6 +44,8 @@ Prinsipnya sengaja dibuat sederhana:
 | **EcoBot (penyapu)** | | |
 | `BRUSH <persen>` | Motor sapu, 0..100 (0 = mati) | Nilai > 0 di bawah `BRUSH_MIN_PCT` (35) dinaikkan ke 35. Kecepatan naik pelan (soft-start) |
 | `LIFT 1` / `LIFT 0` | Angkat / turunkan sapu (servo) | |
+| `CFG D <depan> <serong>` | Ganti jarak menghindar mode otomatis, cm (5..100) | Berlaku sampai Uno restart. Uno membalas `info` berisi nilai baru. Nilai yang salah ditolak tanpa mengubah apa pun |
+| `CFG A <putar> <maju>` | Ganti PWM mode otomatis (0..255): berputar menghindar, maju menyapu | idem |
 
 Perintah `DRV`, `PUMP`, `NOZ`, `BRUSH`, `LIFT` **diabaikan di mode otomatis**. Selama ESP memperbarui
 firmware-nya atau sedang masa percobaan, ESP sendiri menolak semua perintah gerak; yang tetap lewat hanya
@@ -82,15 +84,18 @@ Jadi mengganti `FLAME_COUNT` di firmware sudah cukup, dashboard tidak perlu diub
 EcoBot (penyapu):
 
 ```json
-{"t":"info","robot":"ecobot","kind":"sweeper","fw":"2.1.0",
+{"t":"info","robot":"ecobot","kind":"sweeper","fw":"2.2.0",
  "us":["Depan","Kiri-depan","Kanan-depan","Kiri","Kanan","Wadah"],
  "pins":["A0","A1","A2","A3","A4","D13"],
- "th":{"det":50,"near":20,"side":10,"binE":20,"binF":4},
+ "th":{"det":50,"near":20,"side":10,"binE":20,"binF":4,"obst":22,"diag":18},
  "lift":{"up":80,"down":20},
- "brush":{"pwm":1,"min":35,"auto":70}}
+ "brush":{"pwm":0,"min":35,"auto":70},
+ "spd":{"turn":130,"fwd":110},"cfg":1}
 ```
 
-`brush.pwm` 0 berarti motor sapu memakai relay (hanya nyala/mati), dan dashboard menyembunyikan slider kecepatan sapu.
+`brush.pwm` 0 berarti motor sapu memakai relay (hanya nyala/mati, bawaan robot tim), dan dashboard
+menyembunyikan slider kecepatan sapu. `th.obst`/`th.diag` adalah jarak menghindar dan `spd` PWM mode otomatis
+yang sedang dipakai (bisa diganti dengan `CFG D` / `CFG A`). `cfg` 1 = Uno menerima perintah CFG (EcoBot 2.2.0).
 
 ### `tel` — telemetri, dikirim Uno 4× per detik
 
@@ -133,8 +138,10 @@ Field yang sama di kedua robot:
 | `lf` | 1 = sapu diperintah terangkat, 0 = turun |
 | `la` | sudut servo pengangkat sekarang |
 | `sw` | total detik sapu berputar sejak Uno menyala |
+| `ue` | hasil pemeriksaan kabel 6 sensor, urut `info.us`: 0 baik, 1 kabel Echo lepas (pin Echo HIGH terus), 2 sensor tidak menjawab (tidak ada pulsa: VCC, GND, atau Trig lepas). Sensor yang bermasalah terbaca `d` = -1 |
 
-`st`: `sweep` menyapu · `avoid` mundur & berbelok menghindari rintangan · `turn` belok acak · `full` wadah penuh · `manual`
+`st`: `sweep` menyapu · `avoid` mundur & berbelok menghindari rintangan · `turn` belok acak · `full` wadah penuh ·
+`sensor` berhenti karena salah satu sensor depan (Depan, Kiri-depan, Kanan-depan) bermasalah · `manual`
 
 ### `bridge` — dikirim ESP saat klien tersambung dan saat `INFO`
 
@@ -218,5 +225,7 @@ dengan yang unik**, karena siapa pun yang tahu topiknya bisa membaca telemetri d
 - Uno menyala dalam mode Manual (`BOOT_MODE_AUTO 0`), dan ESP mengirim `STOP` setiap kali menyala.
 - FireGuard: sensor yang kabel AO-nya lepas dideteksi Uno dan diabaikan di mode otomatis (`fe`/`ge`), supaya
   pin yang mengambang tidak dikira api.
+- EcoBot: sensor ultrasonik yang kabelnya lepas atau tidak menjawab dideteksi Uno (`ue`). Mode otomatis berhenti
+  (`st` = `sensor`) kalau sensor depan yang bermasalah, supaya robot tidak berjalan tanpa bisa melihat rintangan.
 - Update firmware ESP: hanya dipasang setelah disetujui, robot harus diam, dan firmware baru harus lolos
   health check (detailnya di [OTA.md](OTA.md)).

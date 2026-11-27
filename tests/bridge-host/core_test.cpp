@@ -107,6 +107,41 @@ int main(int argc, char** argv) {
     CHECK(!parseUnoLine("{\"t\":\"pong\"}", s, t) && !parseUnoLine("bukan json", s, t));
   }
 
+  // ---- EcoBot: 6 sensor ultrasonik, status ue, jarak menghindar ----
+  {
+    RobotSnap s;
+    uint32_t t = 20000;
+    const char* info = R"({"t":"info","robot":"ecobot","kind":"sweeper","fw":"2.2.0","us":["Depan","Kiri-depan","Kanan-depan","Kiri","Kanan","Wadah"],"th":{"det":50,"near":20,"side":10,"binE":20,"binF":4,"obst":22,"diag":18},"brush":{"pwm":0,"min":35,"auto":70},"spd":{"turn":130,"fwd":110},"cfg":1})";
+    const char* tel = R"({"t":"tel","m":"M","st":"manual","d":[80,-1,100,60,70,15],"l":[0,0,0,0,0,0],"ue":[0,0,0,0,0,0],"bin":0,"br":0,"sp":0,"cap":160})";
+    CHECK(parseUnoLine(info, s, t));
+    for (int i = 0; i < 3; i++) CHECK(parseUnoLine(tel, s, t));
+    CHECK(isEcoBot(s) && s.haveTh && s.th[0] == 22 && s.th[1] == 18 && s.spd[0] == 130 && s.spd[1] == 110);
+    CHECK(s.haveUe && s.nUe == 6 && !strcmp(s.usLbl[1], "Kiri-depan") && !strcmp(s.usLbl[2], "Kanan-depan"));
+    HealthInput in;
+    in.robot = "ecobot";
+    char msg[200];
+    CHECK(healthProblems(s, t, in, msg, sizeof(msg)) == 0);      // -1 di sensor depan = ruangan kosong, bukan masalah
+    in.wantTh[0] = 30;
+    CHECK(healthProblems(s, t, in, msg, sizeof(msg)) == 1 && strstr(msg, "jarak menghindar"));
+    in.wantTh[0] = 0;
+    const char* tel2 = R"({"t":"tel","m":"M","d":[-1,80,100,60,70,15],"ue":[1,0,2,0,0,0],"br":0,"sp":0})";
+    parseUnoLine(tel2, s, t);
+    CHECK(healthProblems(s, t, in, msg, sizeof(msg)) == 2 && strstr(msg, "Depan tidak tersambung (kabel Echo lepas?)") &&
+          strstr(msg, "Kanan-depan tidak menjawab"));
+    const char* tel3 = R"({"t":"tel","m":"M","d":[80,80,100,60,70,-1],"ue":[0,0,0,0,0,2],"br":0,"sp":0})";
+    parseUnoLine(tel3, s, t);
+    CHECK(healthProblems(s, t, in, msg, sizeof(msg)) == 1 && strstr(msg, "Wadah tidak menjawab"));   // tidak dobel
+    const char* telOld = R"({"t":"tel","m":"M","d":[80,80,100,60,70,-1],"br":0,"sp":0})";        // Uno 2.1.0 tanpa ue
+    parseUnoLine(telOld, s, t);
+    CHECK(healthProblems(s, t, in, msg, sizeof(msg)) == 1 && strstr(msg, "Wadah tidak membaca apa pun"));
+    s.cfg = false;
+    in.wantSpd[0] = 150;
+    CHECK(healthProblems(s, t, in, msg, sizeof(msg)) == 2 && strstr(msg, "perlu ecobot_uno 2.2.0"));
+    const char* tel4 = R"({"t":"tel","m":"M","d":[80,80,100,60,70,15],"br":70,"sp":0})";
+    parseUnoLine(tel4, s, t);
+    CHECK(gateProblem(s, t, true, 0) != nullptr && strstr(gateProblem(s, t, true, 0), "Sapu"));
+  }
+
   // ---- keputusan saat boot ----
   {
     OtaState st;

@@ -18,7 +18,7 @@ dengan data sungguhan.
 
 ## Menyambung ke robot sungguhan
 
-1. **Wiring dan daya.** Ikuti [docs/WIRING.md](docs/WIRING.md). Panduan rakit urut langkah demi langkah: [docs/RAKIT-FIREGUARD.md](docs/RAKIT-FIREGUARD.md) dan [docs/RAKIT-ECOBOT.md](docs/RAKIT-ECOBOT.md). Bagian daya paling penting (baterai 18650 perlu 2 sel seri, dan ESP32/servo tidak boleh dari pin 5 V Uno).
+1. **Wiring dan daya.** Ikuti [docs/WIRING.md](docs/WIRING.md). Panduan rakit urut langkah demi langkah: [docs/RAKIT-FIREGUARD.md](docs/RAKIT-FIREGUARD.md) dan [docs/RAKIT-ECOBOT.md](docs/RAKIT-ECOBOT.md). Bagian daya paling penting (robot tim memakai 4 baterai 18650 seri lewat buck 5,0 V, dan ESP32/servo tidak boleh dari pin 5 V Uno).
 2. **Upload sketch ke Arduino Uno**: `firmware/fireguard_uno/` atau `firmware/ecobot_uno/`.
    Lepas kabel D0/D1 ke ESP saat upload. Sesuaikan bagian KONFIGURASI di atas sketch (jumlah sensor, arah motor, sudut servo).
    Di modul L298N, **cabut jumper ENA dan ENB** dulu (lihat `docs/WIRING.md` bagian 2).
@@ -29,7 +29,8 @@ dengan data sungguhan.
    ditulis di `secrets.h` (salin dari `secrets.example.h`, tidak ikut ke GitHub). Tanpa diisi, robot membuat WiFi sendiri.
    Library yang perlu dipasang lewat Library Manager: *WebSockets* (Markus Sattler), *ArduinoJson* (Benoit Blanchon, v7),
    dan *PubSubClient* kalau mau MQTT.
-4. **Upload `firmware/esp32cam_stream/` ke ESP32-CAM**: isi `CAM_HOSTNAME`, dan WiFi di `secrets.h` kalau perlu.
+4. **Upload `firmware/esp32cam_stream/` ke ESP32-CAM**: untuk EcoBot tulis `#define ROBOT_NAME "ecobot"` di `secrets.h`
+   (bawaannya FireGuard), dan WiFi di `secrets.h` kalau perlu.
 5. **Di dashboard**, klik ikon roda gigi → mode **Langsung** → isi alamat robot (mis. `fireguard.local` atau IP-nya) dan alamat kamera → Simpan.
    Pengaturan tersimpan di browser.
 
@@ -79,9 +80,10 @@ Yang saya tambah atau perbaiki:
 - **Status sistem**: latensi, sinyal WiFi, alamat, uptime robot, versi firmware, baterai.
 - **Update Firmware ESP**: versi ESP, cek update, pasang dengan konfirmasi dua klik, progres, masa percobaan, dan hasil
   terakhir (VALID / dikembalikan). Lewat MQTT hanya bisa mengecek.
-- **Kabel sensor lepas** (FireGuard): kartu sensor ditandai *Kabel lepas*, ada banner, dan sensor itu diabaikan di mode otomatis.
-- **EcoBot**: sapu nyala/mati dengan kecepatan yang bisa diatur, sapu bisa diangkat/diturunkan, mode otomatis menyapu sambil menghindari
-  rintangan, kapasitas wadah dari sensor, lama menyapu, pengaman tabrakan di mode manual.
+- **Kabel sensor lepas**: kartu sensor ditandai *Kabel lepas* (EcoBot juga *Tidak menjawab*) dan muncul banner. FireGuard
+  mengabaikan sensor itu di mode otomatis; EcoBot berhenti kalau yang lepas sensor depan, supaya tidak berjalan buta.
+- **EcoBot**: sapu nyala/mati (kecepatan bisa diatur kalau memakai transistor/MOSFET), sapu bisa diangkat/diturunkan, mode otomatis
+  menyapu sambil menghindari rintangan, kapasitas wadah dari sensor, lama menyapu, pengaman tabrakan di mode manual.
 - **FireGuard**: arah nozzle bisa diatur manual, jumlah sensor api/gas mengikuti firmware, pemanasan MQ-2 ditampilkan, pompa dibatasi lama nyalanya.
 - Tampilan **3 kolom / 2 kolom / 1 kolom** (desktop, tablet, HP).
 
@@ -96,35 +98,38 @@ Beberapa hal di daftar komponen tidak sepenuhnya jelas bagi saya. Ini yang saya 
 | Jumlah MQ-2 | **2** (A3, A4) | `GAS_COUNT 1` kalau hanya satu |
 | "ESP extension" | modul **ESP32** (atau ESP8266) sebagai jembatan WiFi ke Uno; ESP32-CAM khusus kamera | sketch bridge jalan di ESP32 dan ESP8266 |
 | Driver motor roda | 1 modul L298N per robot: channel A roda kiri, channel B roda kanan | pin di `docs/WIRING.md` bagian 2 |
-| Motor sapu EcoBot | lewat pensaklar di D3: **modul relay** (dipakai di panduan rakit), transistor TIP120, atau modul MOSFET | relay: ubah `BRUSH_USE_PWM` jadi `0`. Bawaan sketch `1` untuk TIP120/MOSFET, kecepatan sapu bisa diatur |
+| Motor sapu EcoBot | **modul relay aktif-LOW** di D3, COM dari buck 5 V (robot tim) | `BRUSH_ACTIVE_HIGH 1` untuk relay aktif-HIGH. TIP120/MOSFET: `BRUSH_USE_PWM 1`, kecepatan sapu bisa diatur |
 | Servo EcoBot | 1 mini servo untuk mengangkat / menurunkan sapu | `LIFT_DOWN_ANGLE`, `LIFT_UP_ANGLE` |
 | 6 ultrasonik EcoBot | Depan, Kiri-depan, Kanan-depan, Kiri, Kanan, **Wadah** (mengukur isi wadah) | urutan & pin di `docs/WIRING.md` |
 | Pompa FireGuard | pompa celup mini 3–6 V lewat modul relay di D4 | `PIN_PUMP`, `PUMP_ACTIVE_HIGH` (bawaan `0` untuk relay aktif-LOW; `1` untuk MOSFET/relay aktif-HIGH) |
-| Baterai | FireGuard: 4 sel 18650 seri (14,8 V) lewat buck, `BAT_CELLS 4`. EcoBot: 2 sel seri (7,4 V) | `BAT_CELLS 2` kalau FireGuard memakai 2 sel seri; satu sel tidak cukup untuk L298N dan Uno |
+| Baterai | kedua robot: 4 sel 18650 seri (14,8 V), semua modul 5 V lewat buck, `BAT_CELLS 4` | `BAT_CELLS 2` di sketch robot dan `tes_motor` kalau memakai 2 sel seri; satu sel tidak cukup untuk L298N dan Uno |
 | Mode saat menyala | **Manual** di kedua robot (tidak langsung jalan sendiri). Otomatis dinyalakan dari dashboard | FireGuard: `BOOT_MODE_AUTO 1`. EcoBot: `setup()` di sketch |
+| ESP32 & ESP32-CAM EcoBot | sketch yang sama dengan FireGuard | `#define ROBOT_NAME "ecobot"` di `secrets.h` masing-masing |
 
 ## Pengujian
 
 Yang sudah dijalankan otomatis:
 
-- **Firmware Uno** dikompilasi dengan `avr-g++` untuk ATmega328P: nol peringatan dari sketch. Memori terpakai sekitar 11–13 KB flash
-  dan 0,5 KB RAM (Uno punya 32 KB dan 2 KB).
-- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 37 skenario diperiksa
+- **Firmware Uno** dikompilasi dengan `avr-g++` untuk ATmega328P: nol peringatan dari sketch. Memori terpakai sekitar 11–14 KB flash
+  dan 0,5–0,6 KB RAM (Uno punya 32 KB dan 2 KB).
+- **Logika firmware** diuji di komputer (`tests/firmware-host`): sketch asli dijalankan dengan sensor palsu, dan 40 skenario diperiksa
   (JSON valid di tiap baris, siaga → belok → semprot → jeda, batas 15 detik pompa, dead-man, soft-start sapu, servo pengangkat,
-  menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah, perintah `CFG`, kabel sensor lepas, perintah dari
+  menghindar ke sisi yang lega, wadah penuh, pengaman tabrakan, input sampah, perintah `CFG`, kabel sensor lepas (sensor api, gas,
+  dan ultrasonik yang kabel Echo-nya lepas atau tidak menjawab), baterai 4 sel seri, relay aktif-LOW, perintah dari
   Serial Monitor: huruf kecil, tanpa Enter, pesan `#` saat perintah diabaikan).
 - **Update firmware ESP (OTA)** diuji di komputer (`tests/bridge-host`): `esp_bridge.ino` yang asli dijalankan di atas ESP32 tiruan
-  (flash dua slot, bootloader, NVS, server update, Uno palsu), dan 14 skenario mengikuti checkpoint praktikum: Push OTA + password
+  (flash dua slot, bootloader, NVS, server update, Uno palsu FireGuard dan EcoBot), dan 17 skenario mengikuti checkpoint praktikum: Push OTA + password
   salah, Pull OTA + persetujuan + syarat robot diam, downgrade / MD5 salah / board salah / file diganti / lupa naik versi ditolak,
   HTTPS dengan Root CA benar dan salah, FAULT_MODE 1/2/3, sensor dicabut → rollback, rollback lewat bootloader, tanda tangan
-  digital, dan parameter robot lewat OTA. Tanda tangan buatan `tools/ota` diperiksa dengan mbedTLS (library yang sama dengan ESP32)
+  digital, parameter robot lewat OTA, dan versi EcoBot (ditahan saat sapu berputar, sensor ultrasonik lepas → rollback, parameter
+  jarak menghindar). Tanda tangan buatan `tools/ota` diperiksa dengan mbedTLS (library yang sama dengan ESP32)
   dan OpenSSL.
 - **Alat OTA** (`tools/ota/test_ota_tools.py`): penerbitan manifest, penolakan file yang salah, tanda tangan.
-- **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 65 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
+- **Dashboard** diuji di Chromium sungguhan (`tests/e2e`, 66 skenario): mode Demo, WebSocket, MQTT, dan kamera terhadap robot palsu
   (`tools/mock-robot`), termasuk server mati lalu hidup lagi, stream kamera macet, lima ukuran layar, kartu Update Firmware ESP,
-  dan tampilan kabel sensor lepas. Setiap tes memastikan **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
+  dan tampilan kabel sensor lepas di kedua robot. Setiap tes memastikan **tidak ada satu pun error/peringatan konsol, error halaman, atau request gagal**.
 - **GitHub Actions** (`.github/workflows/ci.yml`) menjalankan semua tes di atas dan mengompilasi setiap sketch dengan core asli
-  (Uno, ESP32 core 3.0.7 dan core terbaru, saat ini 4.0.0, ESP32-CAM, ESP8266), lalu memeriksa file `.bin` ESP
+  (Uno, ESP32 core 3.0.7 dan core terbaru, saat ini 4.0.0, ESP32-CAM, ESP8266, bridge dan kamera versi EcoBot), lalu memeriksa file `.bin` ESP
   dengan `publish_fw.py`.
 
 ```bash

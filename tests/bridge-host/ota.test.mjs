@@ -21,6 +21,8 @@ let keyDir;
 
 const V = (v) => `"${v}"`;
 const HTTPS_SECRETS = TEST_SECRETS.replace('"http://sim.local:8000"', '"https://sim.local"');
+const ECO_SECRETS = `${TEST_SECRETS}#define ROBOT_NAME    "ecobot"\n`;
+const ECO = { SIM_UNO: 'ecobot' };          // Uno palsu berperan sebagai EcoBot 2.2.0
 
 before(async () => {
   if (!canRun) return;
@@ -46,6 +48,10 @@ before(async () => {
     auto110: { set: { FW_VERSION: V('1.1.0'), OTA_PASANG_OTOMATIS: '1' } },
     h110: { set: { FW_VERSION: V('1.1.0') }, secrets: HTTPS_SECRETS },
     h110bad: { set: { FW_VERSION: V('1.1.0'), UJI_ROOT_CA_SALAH: '1' }, secrets: HTTPS_SECRETS },
+    eco110: { set: { FW_VERSION: V('1.1.0') }, secrets: ECO_SECRETS },
+    eco120: { set: { FW_VERSION: V('1.2.0') }, secrets: ECO_SECRETS },
+    eco121: { set: { FW_VERSION: V('1.2.1') }, secrets: ECO_SECRETS },
+    ecopar130: { set: { FW_VERSION: V('1.3.0'), PARAM_JARAK_DEPAN: '30', PARAM_JARAK_SERONG: '25', PARAM_PWM_MAJU: '120' }, secrets: ECO_SECRETS },
   };
   const names = Object.keys(specs);
   for (let i = 0; i < names.length; i += 4) {
@@ -232,8 +238,8 @@ test('Pull OTA otomatis (OTA_PASANG_OTOMATIS 1): dipasang sendiri saat robot dia
 // ------------------------------------------------------------------
 //  Safe OTA (Pertemuan 3)
 // ------------------------------------------------------------------
-async function installAndReboot(dev, variant, version) {
-  dev.publish(variant, version);
+async function installAndReboot(dev, variant, version, pubOpts = {}) {
+  dev.publish(variant, version, [], pubOpts);
   const s = dev.boot();
   await s.run('INIT', 'T 500', 'WS OTA INSTALL', 'T 1500');
   assert.ok(s.restarted, `v${version} terpasang`);
@@ -432,5 +438,67 @@ test('Parameter lewat OTA: ambang api baru dari firmware ESP dikirim ke Uno dan 
   const infos = s.ws('info');
   assert.equal(infos.at(-1).th.fw, 650);
   assert.match(s.log(), /v1\.2\.0 dikonfirmasi VALID/);
+  await s.close();
+});
+
+// ------------------------------------------------------------------
+//  EcoBot: firmware bridge yang sama dengan ROBOT_NAME "ecobot"
+// ------------------------------------------------------------------
+const ECO_PRODUCT = { product: 'ecobot-bridge' };
+
+test('EcoBot: update ditahan saat sapu berputar, lalu VALID; kabel sensor Depan lepas saat masa percobaan -> rollback', { skip }, async () => {
+  const dev = await freshDevice('eco', 'eco110', '1.1.0', ECO);
+  dev.publish('eco120', '1.2.0', [], ECO_PRODUCT);
+  let s = dev.boot();
+  await s.run('INIT', 'T 500', 'WSC', 'T 20', 'UNO br 70', 'T 400', 'WS OTA INSTALL', 'T 300');
+  assert.equal(s.lastOta().st, 'blocked');
+  assert.match(s.lastOta().msg, /Sapu masih berputar/);
+  assert.equal(s.restarted, false);
+  await s.run('WS STOP', 'T 400', 'WS OTA INSTALL', 'T 1500');
+  assert.ok(s.restarted, 'sapu berhenti -> update dipasang');
+  assert.ok(s.lines.some((l) => /HTTP GET .*ecobot-bridge-1\.2\.0\.bin/.test(l)), 'manifest & file EcoBot terpisah dari FireGuard');
+
+  s = dev.boot();
+  await s.run('INIT', 'T 8000');
+  assert.equal(dev.boots.at(-1), 'eco120');
+  assert.match(s.log(), /\[Health\] LULUS/);
+  assert.match(s.log(), /v1\.2\.0 dikonfirmasi VALID/);
+  await s.close();
+
+  // versi berikutnya: kabel Echo sensor Depan lepas saat masa percobaan
+  await installAndReboot(dev, 'eco121', '1.2.1', ECO_PRODUCT);
+  const trial = dev.boot();
+  await trial.run('INIT', 'UNO ue 1 0 0 0 0 0', 'UNO d -1 90 100 60 70 15', 'T 40000');
+  assert.match(trial.log(), /TIDAK LULUS: .*sensor Depan tidak tersambung \(kabel Echo lepas\?\)/);
+  assert.ok(trial.restarted);
+  const back = dev.boot();
+  await back.run('INIT', 'T 1000');
+  assert.equal(dev.boots.at(-1), 'eco120');
+  assert.match(back.log(), /rolled_back v1\.2\.1/);
+  await back.close();
+});
+
+test('EcoBot: sensor ultrasonik yang tidak menjawab (tanpa daya) juga membatalkan update', { skip }, async () => {
+  const dev = await freshDevice('ecodead', 'eco110', '1.1.0', ECO);
+  await installAndReboot(dev, 'eco120', '1.2.0', ECO_PRODUCT);
+  const trial = dev.boot();
+  await trial.run('INIT', 'UNO ue 0 0 0 0 2 0', 'T 40000');
+  assert.match(trial.log(), /sensor Kanan tidak menjawab \(cek VCC, GND, Trig\)/);
+  assert.ok(trial.restarted);
+});
+
+test('EcoBot: parameter lewat OTA (jarak menghindar & PWM maju) dikirim dengan CFG D/A dan ikut dicek', { skip }, async () => {
+  const dev = await freshDevice('ecopar', 'eco110', '1.1.0', ECO);
+  await installAndReboot(dev, 'ecopar130', '1.3.0', ECO_PRODUCT);
+  const s = dev.boot();
+  await s.run('INIT', 'T 8000');
+  assert.ok(s.uno().includes('CFG D 30 25'), s.uno().join('\n'));
+  assert.ok(s.uno().includes('CFG A 130 120'), 'PWM putar tetap nilai Uno, PWM maju diganti');
+  assert.ok(!s.uno().some((c) => /^CFG [FG] /.test(c)), 'perintah khusus FireGuard tidak dikirim ke EcoBot');
+  assert.equal(s.uno().filter((c) => c.startsWith('CFG')).length, 2, 'masing-masing hanya sekali');
+  const info = s.ws('info').at(-1);
+  assert.equal(info.th.obst, 30);
+  assert.equal(info.spd.fwd, 120);
+  assert.match(s.log(), /v1\.3\.0 dikonfirmasi VALID/);
   await s.close();
 });

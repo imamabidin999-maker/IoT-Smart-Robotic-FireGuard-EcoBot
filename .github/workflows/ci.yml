@@ -98,6 +98,19 @@ jobs:
           grep -q '"version": "9.9.9"' out/srv2/kel04/manifest-fireguard-bridge.json
           git checkout -- firmware/esp_bridge && rm -f firmware/esp_bridge/secrets.h
 
+      - name: ESP bridge (EcoBot, parameter jarak lewat OTA)
+        run: |
+          cd firmware/esp_bridge
+          cp secrets.example.h secrets.h
+          echo '#define ROBOT_NAME "ecobot"' >> secrets.h
+          sed -i 's/^#define PARAM_JARAK_DEPAN    0/#define PARAM_JARAK_DEPAN    30/; s/^#define PARAM_PWM_MAJU       0/#define PARAM_PWM_MAJU       120/' config.h
+          cd ../..
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default --output-dir out/bridge-eco firmware/esp_bridge
+          python3 tools/ota/publish_fw.py --root out/srv-eco --group kel04 --base-url http://192.168.10.23:8000 \
+            --channel both --tanpa-tanda-tangan --bin out/bridge-eco/esp_bridge.ino.bin
+          test -f out/srv-eco/kel04/manifest-ecobot-bridge.json
+          git checkout -- firmware/esp_bridge && rm -f firmware/esp_bridge/secrets.h
+
       - name: ESP bridge (ESP8266, hanya Push OTA)
         run: arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 --warnings default firmware/esp_bridge
 
@@ -106,3 +119,10 @@ jobs:
           arduino-cli compile --fqbn esp32:esp32:esp32cam:PartitionScheme=min_spiffs --warnings default --output-dir out/cam firmware/esp32cam_stream
           python3 tools/ota/publish_fw.py --root out/srv-cam --group kel04 --base-url http://192.168.10.23:8000 \
             --slot-size 0x1E0000 --channel both --tanpa-tanda-tangan --bin out/cam/esp32cam_stream.ino.bin
+          cp firmware/esp32cam_stream/secrets.example.h firmware/esp32cam_stream/secrets.h
+          echo '#define ROBOT_NAME "ecobot"' >> firmware/esp32cam_stream/secrets.h
+          arduino-cli compile --fqbn esp32:esp32:esp32cam:PartitionScheme=min_spiffs --warnings default --output-dir out/cam-eco firmware/esp32cam_stream
+          python3 tools/ota/publish_fw.py --root out/srv-cam --group kel04 --base-url http://192.168.10.23:8000 \
+            --slot-size 0x1E0000 --channel both --tanpa-tanda-tangan --bin out/cam-eco/esp32cam_stream.ino.bin
+          test -f out/srv-cam/kel04/manifest-ecobot-cam.json
+          rm -f firmware/esp32cam_stream/secrets.h

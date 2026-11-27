@@ -336,6 +336,9 @@ struct RobotSnap {
   bool gasWarm = false;       // MQ-2 masih pemanasan
   uint8_t nDist = 0;          // EcoBot: jumlah sensor ultrasonik
   int dist[8] = {0};
+  bool haveUe = false;        // EcoBot mengirim status sensor ultrasonik (ue)
+  uint8_t nUe = 0;
+  uint8_t ue[8] = {0};        // 0 baik, 1 kabel Echo lepas, 2 sensor tidak menjawab
 
   // dari pesan "info"
   bool info = false;
@@ -344,12 +347,17 @@ struct RobotSnap {
   char fw[16] = {0};
   bool cfg = false;           // Uno menerima perintah CFG
   bool haveTh = false;
-  int th[4] = {0};            // api waspada, api bahaya, gas waspada, gas bahaya
+  int th[4] = {0};            // FireGuard: api waspada, api bahaya, gas waspada, gas bahaya
+                              // EcoBot: jarak menghindar depan, serong (cm), 0, 0
   bool haveSpd = false;
   int spd[2] = {0};           // PWM otomatis: putar, maju
   char flameLbl[4][10] = {{0}};
   char gasLbl[4][10] = {{0}};
+  char usLbl[8][12] = {{0}};  // EcoBot: nama sensor ultrasonik
 };
+
+// Uno EcoBot memakai perintah CFG dan isi telemetri yang berbeda dengan FireGuard
+inline bool isEcoBot(const RobotSnap& s) { return strcmp(s.robot, "ecobot") == 0; }
 
 template <typename T>
 inline uint8_t readIntArray(JsonArrayConst a, T* out, uint8_t max) {
@@ -361,11 +369,12 @@ inline uint8_t readIntArray(JsonArrayConst a, T* out, uint8_t max) {
   return n;
 }
 
-inline void readLabels(JsonArrayConst a, char out[][10], uint8_t max) {
+template <size_t N>
+inline void readLabels(JsonArrayConst a, char out[][N], uint8_t max) {
   uint8_t n = 0;
   for (JsonVariantConst v : a) {
     if (n >= max) break;
-    copyStr(out[n++], 10, v | "");
+    copyStr(out[n++], N, v | "");
   }
 }
 
@@ -397,6 +406,9 @@ inline bool parseUnoLine(const char* line, RobotSnap& s, uint32_t now) {
     readIntArray(doc["ge"].as<JsonArrayConst>(), s.ge, 4);
     s.gasWarm = (doc["gw"] | 0) != 0;
     s.nDist = readIntArray(doc["d"].as<JsonArrayConst>(), s.dist, 8);
+    s.haveUe = !doc["ue"].isNull();
+    memset(s.ue, 0, sizeof(s.ue));
+    s.nUe = readIntArray(doc["ue"].as<JsonArrayConst>(), s.ue, 8);
     return true;
   }
 
@@ -406,16 +418,22 @@ inline bool parseUnoLine(const char* line, RobotSnap& s, uint32_t now) {
   copyStr(s.fw, sizeof(s.fw), doc["fw"] | "");
   s.cfg = (doc["cfg"] | 0) != 0;
   JsonObjectConst th = doc["th"].as<JsonObjectConst>();
-  s.haveTh = !th.isNull() && !th["fw"].isNull();
-  if (s.haveTh) {
+  s.haveTh = false;
+  if (!th.isNull() && !th["fw"].isNull()) {            // FireGuard: ambang api & gas
+    s.haveTh = true;
     s.th[0] = th["fw"] | 0; s.th[1] = th["fd"] | 0;
     s.th[2] = th["gw"] | 0; s.th[3] = th["gd"] | 0;
+  } else if (!th.isNull() && !th["obst"].isNull()) {   // EcoBot: jarak menghindar
+    s.haveTh = true;
+    s.th[0] = th["obst"] | 0; s.th[1] = th["diag"] | 0;
+    s.th[2] = 0; s.th[3] = 0;
   }
   JsonObjectConst spd = doc["spd"].as<JsonObjectConst>();
   s.haveSpd = !spd.isNull();
   if (s.haveSpd) { s.spd[0] = spd["turn"] | 0; s.spd[1] = spd["fwd"] | 0; }
   readLabels(doc["flame"].as<JsonArrayConst>(), s.flameLbl, 4);
   readLabels(doc["gas"].as<JsonArrayConst>(), s.gasLbl, 4);
+  readLabels(doc["us"].as<JsonArrayConst>(), s.usLbl, 8);
   return true;
 }
 
@@ -451,7 +469,7 @@ struct HealthInput {
   bool fault = false;           // FAULT_MODE 1: health check sengaja digagalkan
 };
 
-inline const char* sensorName(const char lbl[10], const char* fallback, int idx, char* buf, size_t n) {
+inline const char* sensorName(const char* lbl, const char* fallback, int idx, char* buf, size_t n) {
   if (lbl[0]) snprintf(buf, n, "%s", lbl);
   else snprintf(buf, n, "%s%d", fallback, idx + 1);
   return buf;
@@ -497,16 +515,35 @@ inline int healthProblems(const RobotSnap& s, uint32_t now, const HealthInput& i
         appendMsg(msg, n, part); bad++;
       }
     }
+    // EcoBot: Uno 2.2.0 ke atas memeriksa sendiri tiap sensor ultrasonik (ue)
+    if (s.haveUe) {
+      char us[16];
+      for (uint8_t i = 0; i < s.nUe && i < 8; i++) {
+        if (!s.ue[i]) continue;
+        sensorName(s.usLbl[i], "ultrasonik #", i, us, sizeof(us));
+        if (s.ue[i] == 1) snprintf(part, sizeof(part), "sensor %s tidak tersambung (kabel Echo lepas?)", us);
+        else              snprintf(part, sizeof(part), "sensor %s tidak menjawab (cek VCC, GND, Trig)", us);
+        appendMsg(msg, n, part); bad++;
+      }
+    }
     // EcoBot: sensor ke-6 menghadap ke dalam wadah sampah, jadi selalu ada permukaan yang terlihat.
     // Kalau sensor itu tidak membaca apa pun (-1), hampir pasti kabelnya lepas.
-    if (s.nDist >= 6 && s.dist[5] < 0) { appendMsg(msg, n, "sensor ultrasonik Wadah tidak membaca apa pun (kabel lepas?)"); bad++; }
+    if (s.nDist >= 6 && s.dist[5] < 0 && !(s.haveUe && s.nUe >= 6 && s.ue[5])) {
+      appendMsg(msg, n, "sensor ultrasonik Wadah tidak membaca apa pun (kabel lepas?)"); bad++;
+    }
 
+    const bool eco = isEcoBot(s);
     bool wantTh = in.wantTh[0] || in.wantTh[1] || in.wantTh[2] || in.wantTh[3];
     bool wantSpd = in.wantSpd[0] || in.wantSpd[1];
-    if ((wantTh || wantSpd) && !s.cfg) { appendMsg(msg, n, "Uno belum mendukung CFG (perlu fireguard_uno 1.4.0)"); bad++; }
-    else {
+    if ((wantTh || wantSpd) && !s.cfg) {
+      appendMsg(msg, n, eco ? "Uno belum mendukung CFG (perlu ecobot_uno 2.2.0)" : "Uno belum mendukung CFG (perlu fireguard_uno 1.4.0)");
+      bad++;
+    } else {
       for (int i = 0; i < 4; i++) {
-        if (in.wantTh[i] && (!s.haveTh || s.th[i] != in.wantTh[i])) { appendMsg(msg, n, "ambang sensor baru belum diterapkan di Uno"); bad++; break; }
+        if (in.wantTh[i] && (!s.haveTh || s.th[i] != in.wantTh[i])) {
+          appendMsg(msg, n, eco ? "jarak menghindar baru belum diterapkan di Uno" : "ambang sensor baru belum diterapkan di Uno");
+          bad++; break;
+        }
       }
       for (int i = 0; i < 2; i++) {
         if (in.wantSpd[i] && (!s.haveSpd || s.spd[i] != in.wantSpd[i])) { appendMsg(msg, n, "PWM otomatis baru belum diterapkan di Uno"); bad++; break; }

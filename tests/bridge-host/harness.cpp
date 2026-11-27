@@ -8,7 +8,8 @@
 //   SER <teks>           ketik di Serial Monitor ESP
 //   UNO <isian> <nilai>  ubah kondisi Uno palsu: mode A|M, sp N, fl a b, gs a b, fe a b, ge a b,
 //                        noerr (Uno lama tanpa fe/ge), off|on (berhenti/kirim telemetri), fw x.y.z,
-//                        robot nama, nocfg, gw 0|1
+//                        robot nama, nocfg, gw 0|1; EcoBot: d a b c d e f (jarak), ue a b c d e f, br N
+//   (env SIM_UNO=ecobot: Uno palsu langsung berperan sebagai EcoBot 2.2.0)
 //   PUSH <file> <pass>   tiru upload dari Arduino IDE (Push OTA)
 //   HEAP <byte>          sisa memori palsu
 //
@@ -127,7 +128,11 @@ struct FakeUno {
   std::string robot = "fireguard", fw = "1.4.0";
   int th[4] = {700, 400, 350, 550};
   int spd[2] = {150, 140};
+  // EcoBot
+  std::vector<int> d{80, 90, 100, 60, 70, 15}, ue{0, 0, 0, 0, 0, 0};
+  int br = 0, obst = 22, diag = 18;
   uint32_t nextTel = 0;
+  bool eco() const { return robot == "ecobot"; }
 };
 static FakeUno uno;
 
@@ -145,6 +150,14 @@ static void unoSay(const std::string& line) {
 static void unoTel() {
   if (!uno.on) return;
   std::ostringstream s;
+  if (uno.eco()) {
+    s << "{\"t\":\"tel\",\"up\":" << g_ms / 1000 << ",\"m\":\"" << uno.mode << "\",\"st\":\"" << (uno.mode == 'M' ? "manual" : "sweep")
+      << "\",\"d\":" << arr(uno.d) << ",\"l\":[0,0,0,0,0,0]";
+    if (uno.sendErr) s << ",\"ue\":" << arr(uno.ue);
+    s << ",\"bin\":0,\"br\":" << uno.br << ",\"bt\":" << uno.br << ",\"lf\":1,\"la\":80,\"sw\":0,\"sp\":" << uno.sp << ",\"cap\":160}";
+    unoSay(s.str());
+    return;
+  }
   s << "{\"t\":\"tel\",\"up\":" << g_ms / 1000 << ",\"m\":\"" << uno.mode << "\",\"st\":\"" << (uno.mode == 'M' ? "manual" : "idle")
     << "\",\"fl\":" << arr(uno.fl) << ",\"fs\":[0,0],\"gs\":" << arr(uno.gs) << ",\"gl\":[0,0],\"gw\":" << uno.gw;
   if (uno.sendErr) s << ",\"fe\":" << arr(uno.fe) << ",\"ge\":" << arr(uno.ge);
@@ -155,6 +168,17 @@ static void unoTel() {
 static void unoInfo() {
   if (!uno.on) return;
   std::ostringstream s;
+  if (uno.eco()) {
+    s << "{\"t\":\"info\",\"robot\":\"ecobot\",\"kind\":\"sweeper\",\"fw\":\"" << uno.fw
+      << "\",\"us\":[\"Depan\",\"Kiri-depan\",\"Kanan-depan\",\"Kiri\",\"Kanan\",\"Wadah\"],\"pins\":[\"A0\",\"A1\",\"A2\",\"A3\",\"A4\",\"D13\"]"
+      << ",\"th\":{\"det\":50,\"near\":20,\"side\":10,\"binE\":20,\"binF\":4";
+    if (uno.cfg) s << ",\"obst\":" << uno.obst << ",\"diag\":" << uno.diag;
+    s << "},\"lift\":{\"up\":80,\"down\":20},\"brush\":{\"pwm\":0,\"min\":35,\"auto\":70}";
+    if (uno.cfg) s << ",\"spd\":{\"turn\":" << uno.spd[0] << ",\"fwd\":" << uno.spd[1] << "},\"cfg\":1";
+    s << "}";
+    unoSay(s.str());
+    return;
+  }
   s << "{\"t\":\"info\",\"robot\":\"" << uno.robot << "\",\"fw\":\"" << uno.fw
     << "\",\"flame\":[\"Kiri\",\"Kanan\"],\"flamePins\":[\"A0\",\"A1\"],\"gas\":[\"MQ-2 #1\",\"MQ-2 #2\"],\"gasPins\":[\"A3\",\"A4\"]"
     << ",\"th\":{\"fw\":" << uno.th[0] << ",\"fd\":" << uno.th[1] << ",\"gw\":" << uno.th[2] << ",\"gd\":" << uno.th[3] << "}"
@@ -167,12 +191,16 @@ static void unoInfo() {
 static void unoHandle(const std::string& cmd) {
   char a[16] = {0};
   int x = 0, y = 0;
-  if (cmd == "STOP" || cmd == "MODE M") { uno.mode = 'M'; uno.sp = 0; uno.pump = 0; unoTel(); }
+  if (cmd == "STOP" || cmd == "MODE M") { uno.mode = 'M'; uno.sp = 0; uno.pump = 0; uno.br = 0; unoTel(); }
   else if (cmd == "MODE A") { uno.mode = 'A'; unoTel(); }
   else if (sscanf(cmd.c_str(), "DRV %d %d", &x, &y) == 2) { if (uno.mode == 'M') uno.sp = (x || y) ? 120 : 0; }
   else if (cmd == "INFO") { unoInfo(); unoTel(); }
   else if (uno.cfg && sscanf(cmd.c_str(), "CFG %15s %d %d", a, &x, &y) == 3) {
-    if (!strcmp(a, "F") && y >= 1 && y < x && x <= 1023) { uno.th[0] = x; uno.th[1] = y; unoInfo(); }
+    if (uno.eco()) {
+      if (!strcmp(a, "D") && x >= 5 && x <= 100 && y >= 5 && y <= 100) { uno.obst = x; uno.diag = y; unoInfo(); }
+      else if (!strcmp(a, "A") && x >= 0 && x <= 255 && y >= 0 && y <= 255) { uno.spd[0] = x; uno.spd[1] = y; unoInfo(); }
+    }
+    else if (!strcmp(a, "F") && y >= 1 && y < x && x <= 1023) { uno.th[0] = x; uno.th[1] = y; unoInfo(); }
     else if (!strcmp(a, "G") && x >= 1 && x < y && y <= 1023) { uno.th[2] = x; uno.th[3] = y; unoInfo(); }
     else if (!strcmp(a, "A") && x >= 0 && x <= 255 && y >= 0 && y <= 255) { uno.spd[0] = x; uno.spd[1] = y; unoInfo(); }
   }
@@ -335,6 +363,7 @@ int main() {
   if (getenv("SIM_SERVER")) g_server = getenv("SIM_SERVER");
   if (getenv("SIM_TLS_NEEDLE")) g_tls_needle = getenv("SIM_TLS_NEEDLE");
   if (getenv("SIM_STA")) g_sta_available = atoi(getenv("SIM_STA")) != 0;
+  if (getenv("SIM_UNO") && !strcmp(getenv("SIM_UNO"), "ecobot")) { uno.robot = "ecobot"; uno.fw = "2.2.0"; uno.spd[0] = 130; uno.spd[1] = 110; }
   loadFlash();
   g_running = getenv("SIM_RUNNING") ? atoi(getenv("SIM_RUNNING")) : g_boot;
 
@@ -387,6 +416,9 @@ int main() {
       else if (k == "fw") is >> uno.fw;
       else if (k == "robot") is >> uno.robot;
       else if (k == "nocfg") uno.cfg = false;
+      else if (k == "d") uno.d = ints(is);
+      else if (k == "ue") uno.ue = ints(is);
+      else if (k == "br") is >> uno.br;
     }
     fflush(stdout);
     printf("DONE\n");

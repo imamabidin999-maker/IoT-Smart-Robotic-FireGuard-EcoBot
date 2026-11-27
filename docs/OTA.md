@@ -334,7 +334,8 @@ Ambang sensor dan kecepatan mode otomatis tersimpan di Uno, tapi bisa diganti da
 3. Masa percobaan baru lolos kalau nilai itu benar-benar sudah dipakai Uno.
 
 Parameter lain: `PARAM_GAS_WASPADA`/`PARAM_GAS_BAHAYA` (gas: waspada < bahaya), `PARAM_PWM_PUTAR`/`PARAM_PWM_MAJU`
-(1..255). Nilai `0` berarti memakai nilai bawaan Uno. Kalau Uno restart, ESP mengirim ulang nilainya.
+(1..255). Nilai `0` berarti memakai nilai bawaan Uno. Kalau Uno restart, ESP mengirim ulang nilainya. Untuk
+EcoBot parameternya jarak menghindar, lihat bagian [EcoBot](#ecobot).
 
 Untuk demo 2 menit: tunjukkan grafik sebelum update → tekan **Pasang** di dashboard (robot berhenti) →
 masa percobaan → VALID → garis ambang di grafik sudah pindah. Lalu jelaskan health check-nya.
@@ -358,6 +359,35 @@ tidak punya kunci juga tidak bisa memberi nomor versi baru pada file lama. Simpa
 flashdisk. Kalau kunci hilang, buat kunci baru (`keygen.py --ganti`) dan upload ulang ESP lewat USB.
 
 Alat ini hanya butuh Python 3 biasa, tanpa `pip install`.
+
+---
+
+## EcoBot
+
+Firmware ESP bridge yang sama dipakai di EcoBot, jadi semua langkah di atas berlaku. Yang berbeda:
+
+- `secrets.h` ESP32 EcoBot berisi `#define ROBOT_NAME "ecobot"`. Nama firmware-nya jadi `ecobot-bridge`,
+  manifest-nya `manifest-ecobot-bridge.json`, dan nama di jaringan `ecobot`. `publish_fw.py` membaca nama itu
+  sendiri dari file `.bin`, jadi perintah menerbitkannya sama persis. Update FireGuard tidak akan terpasang di
+  EcoBot, begitu juga sebaliknya, karena nama produknya ikut diperiksa.
+- Syarat robot diam: mode Manual, roda diam, dan **sapu mati** (`Sapu masih berputar. Matikan dulu.`).
+- **Health check** membaca keenam sensor ultrasonik (butuh Uno EcoBot 2.2.0, yang mengirim `ue`). Versi EcoBot
+  untuk C3.4: pasang update, lalu cabut kabel Echo sensor Depan sebelum masa percobaan selesai.
+
+  ```
+  [Health] TIDAK LULUS: sensor Depan tidak tersambung (kabel Echo lepas?)
+  [SafeOTA] ROLLBACK v1.3.0: health check gagal (sensor Depan tidak tersambung (kabel Echo lepas?))
+  ```
+
+  Sensor tanpa daya atau kabel Trig lepas tertulis `sensor Kanan tidak menjawab (cek VCC, GND, Trig)`. Sensor
+  Wadah yang tidak melihat dasar wadah juga dianggap tidak sehat.
+- **Demo parameter:** `PARAM_JARAK_DEPAN` dan `PARAM_JARAK_SERONG` (5..100 cm, bawaan Uno 22 dan 18) mengatur
+  seberapa dekat rintangan sebelum robot menghindar. `PARAM_PWM_PUTAR` / `PARAM_PWM_MAJU` mengatur kecepatan
+  berputar dan menyapu. ESP mengirim `CFG D` dan `CFG A` ke Uno EcoBot; perintah khusus FireGuard (`CFG F`,
+  `CFG G`) tidak pernah dikirim. Contoh demo: naikkan versi, isi `PARAM_JARAK_DEPAN 30`, terbitkan, pasang.
+  Setelah VALID, robot sudah menghindar dari jarak 30 cm, padahal Uno tidak di-upload ulang.
+- Kalau firmware ESP baru butuh Uno EcoBot terbaru, terbitkan dengan `--min-uno 2.2.0`.
+- Kamera EcoBot: `#define ROBOT_NAME "ecobot"` di `secrets.h` kamera, nama Push OTA-nya `ecobot-cam`.
 
 ---
 

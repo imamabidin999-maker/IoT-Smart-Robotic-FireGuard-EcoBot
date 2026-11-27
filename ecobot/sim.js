@@ -44,6 +44,7 @@
       this.turnS = 0.7;
       this.sinceTurn = 0;
       this.binAcc = 0;
+      this.ue = [0, 0, 0, 0, 0, 0];                  // 1 = kabel Echo lepas, 2 = sensor tidak menjawab (lihat unplug)
     }
 
     info() {
@@ -51,9 +52,11 @@
         t: 'info', robot: 'ecobot', kind: 'sweeper', fw: this.fw,
         us: ['Depan', 'Kiri-depan', 'Kanan-depan', 'Kiri', 'Kanan', 'Wadah'],
         pins: ['A0', 'A1', 'A2', 'A3', 'A4', 'D13'],
-        th: { det: TH.det, near: TH.near, side: TH.side, binE: TH.binE, binF: TH.binF },
+        th: { det: TH.det, near: TH.near, side: TH.side, binE: TH.binE, binF: TH.binF, obst: 22, diag: 18 },
         lift: LIFT,
         brush: { pwm: 1, min: BRUSH.min, auto: BRUSH.auto },
+        spd: { turn: AVOID_PWM, fwd: SWEEP_PWM },
+        cfg: 1,
       };
     }
 
@@ -62,8 +65,9 @@
     telemetry() {
       const t = this.commonTel();
       t.st = this.mode === 'M' ? 'manual' : this.state;
-      t.d = this.d.map((v) => (v > 0 ? Math.round(v) : -1)).concat([Math.round(this.binDist)]);
-      t.l = this.d.map((v, i) => level(i, v)).concat([0]);
+      t.d = this.d.map((v, i) => (v > 0 && !this.ue[i] ? Math.round(v) : -1)).concat([this.ue[5] ? -1 : Math.round(this.binDist)]);
+      t.l = this.d.map((v, i) => (this.ue[i] ? 0 : level(i, v))).concat([0]);
+      t.ue = this.ue.slice();
       t.bin = Math.round(this.binPct);
       t.br = Math.round(this.brushOut);
       t.bt = this.brushTarget;
@@ -77,6 +81,8 @@
     force(idx, lvl) { if (idx >= 0 && idx < this.forced.length) this.forced[idx] = lvl; }
     /** dipakai demo: kosongkan wadah */
     resetBin() { this.binPct = 4; }
+    /** pengujian: kabel sensor ke-idx lepas (code 1) / tidak menjawab (code 2), on=false = dipasang lagi */
+    unplug(idx, on, code = 1) { if (idx >= 0 && idx < this.ue.length) this.ue[idx] = on ? code : 0; }
 
     otaBusyReason() { return this.brushOut > 0 || this.brushTarget > 0 ? 'Sapu masih berputar. Matikan dulu.' : null; }
 
@@ -146,7 +152,14 @@
     }
 
     _auto(dt) {
-      const lv = this.d.map((v, i) => level(i, v));
+      const lv = this.d.map((v, i) => (this.ue[i] ? 0 : level(i, v)));
+      if (this.ue[0] || this.ue[1] || this.ue[2]) {
+        // sama seperti firmware: sensor depan lepas -> berhenti sampai tersambung lagi
+        if (this.state !== 'sensor') this._go('sensor');
+        this.sp = 0; this._brush(0); this.liftUp = true;
+        return;
+      }
+      if (this.state === 'sensor') { this._go('sweep'); this.sinceTurn = 0; }
       if (this.binPct >= TH.binFull) {
         if (this.state !== 'full') this._go('full');
         this.sp = 0; this._brush(0); this.liftUp = true;

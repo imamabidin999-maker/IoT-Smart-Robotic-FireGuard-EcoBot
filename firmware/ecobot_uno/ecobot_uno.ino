@@ -19,7 +19,9 @@
   berjauhan (depan-wadah, kiri depan-kanan depan, kiri-kanan) supaya tidak saling mengganggu.
   Pengukuran tetap satu sensor per satu waktu (lihat usStep), jadi hasilnya tidak tercampur.
 
-  Semua yang mungkin perlu Anda ubah ada di bagian KONFIGURASI paling atas.
+  Semua yang mungkin perlu Anda ubah ada di bagian KONFIGURASI paling atas. Nilai bawaannya
+  sudah cocok dengan robot tim: 6 sensor ultrasonik, sapu lewat modul relay aktif-LOW,
+  4 baterai seri lewat buck.
 */
 
 #include <Servo.h>
@@ -27,7 +29,7 @@
 // ==================================================================
 //  KONFIGURASI
 // ==================================================================
-#define FW_VERSION      "2.1.0"
+#define FW_VERSION      "2.2.0"
 #define SERIAL_BAUD     57600
 
 // ---- L298N (roda). Sisi kiri = channel A, sisi kanan = channel B ----
@@ -42,11 +44,11 @@
 #define INVERT_RIGHT    0      // ganti 1 kalau roda kanan berputar terbalik
 
 // ---- motor sapu (sikat berputar) ----
-#define PIN_BRUSH       3      // PWM, ke IN modul relay / basis TIP120 (lewat 1 kΩ) / SIG modul MOSFET
-#define BRUSH_USE_PWM   1      // 1 = transistor atau MOSFET (kecepatan bisa diatur). 0 = modul relay (hanya nyala/mati)
-#define BRUSH_ACTIVE_HIGH 1    // hanya untuk relay: modul relay biasanya aktif LOW -> ganti jadi 0
+#define PIN_BRUSH       3      // ke IN modul relay / basis TIP120 (lewat 1 kΩ) / SIG modul MOSFET
+#define BRUSH_USE_PWM   0      // 0 = modul relay (hanya nyala/mati). 1 = transistor atau MOSFET (kecepatan bisa diatur)
+#define BRUSH_ACTIVE_HIGH 0    // hanya untuk relay: 0 = aktif-LOW (relay SONGLE 1 kanal). Relay aktif-HIGH -> 1
 #define BRUSH_MIN_PCT   35     // di bawah ini motor sapu biasanya tidak kuat berputar
-#define BRUSH_AUTO_PCT  70     // kecepatan sapu di mode otomatis (70% dari baterai 2S ±5,9 V, aman untuk motor 3-6 V)
+#define BRUSH_AUTO_PCT  70     // kecepatan sapu di mode otomatis (transistor/MOSFET): 70% dari 2 sel ±5,9 V, aman untuk motor 3-6 V
 #define BRUSH_RAMP_MS   600UL  // dari 0 ke 100% dinaikkan pelan-pelan, supaya lonjakan arus tidak me-reset Uno
 
 // ---- servo pengangkat sapu ----
@@ -66,17 +68,37 @@ static const uint8_t US_ECHO[US_COUNT] = { A0, A1, A2, A3, A4, 13 };
 #define US_KANAN        4
 #define US_WADAH        5
 
-// ---- baterai (opsional) ----
-// Pasang pembagi tegangan (2 resistor sama, mis. 10k + 10k) dari + baterai ke A5,
-// lalu ubah HAS_BATTERY_SENSE jadi 1. Kalau tidak dipasang, biarkan 0.
+// ---- baterai ----
+// Jumlah sel 18650 yang disusun SERI: 4 (14,8 V, wajib lewat buck untuk modul 5 V) atau 2 (7,4 V).
+// Dengan 4 sel, PWM roda (dan sapu kalau memakai transistor/MOSFET) dibagi dua: kecepatan tetap
+// seperti rancangan 2 sel dan motor TT tidak kelebihan tegangan. Samakan dengan BAT_CELLS di tes_motor.ino.
+#define BAT_CELLS       4
+
+// Sensor tegangan (opsional). Pasang pembagi tegangan dari + baterai ke A5, lalu ubah
+// HAS_BATTERY_SENSE jadi 1. Kalau tidak dipasang, biarkan 0.
+//   2 sel: 10k + 10k                      -> BAT_DIVIDER_X100 200
+//   4 sel: 30k (mis. 3 x 10k seri) + 10k  -> BAT_DIVIDER_X100 400
 #define HAS_BATTERY_SENSE 0
 #define PIN_BATTERY     A5
-#define BAT_DIVIDER_X100 200
+#define BAT_DIVIDER_X100 200   // (R1+R2)/R2 x 100. Dua resistor sama = 200
+
+// ---- cek kabel sensor ----
+// 1 = Uno memeriksa apakah tiap sensor ultrasonik benar-benar tersambung. Sensor yang lepas
+// terbaca "tidak ada benda", sama seperti ruangan kosong, padahal robot jadi buta di arah itu.
+//   - kabel Echo lepas: pin Echo (pull-up) terbaca HIGH terus, tidak pernah kembali LOW
+//   - sensor tidak menjawab (VCC, GND, atau Trig lepas): tidak ada pulsa sama sekali setelah dipicu
+// Sensor yang bermasalah dilaporkan ke dashboard (ue di telemetri). Di mode otomatis robot berhenti
+// kalau salah satu sensor depan (Depan, Kiri-depan, Kanan-depan) bermasalah.
+#define SENSOR_CHECK    1
+#define US_STUCK_MS     1000UL    // Echo HIGH terus selama ini = kabel Echo lepas
+#define US_DEAD_COUNT   4         // berapa kali berturut-turut tanpa pulsa = sensor tidak menjawab
 
 // ---- jarak (cm) ----
 #define DETECT_CM       50     // benda dianggap "terdeteksi" (tampilan dashboard)
 #define NEAR_CM         20     // depan / serong depan: sudah dekat
 #define SIDE_NEAR_CM    10     // kiri / kanan: sudah dekat
+// OBST_CM, DIAG_CM, TURN_PWM, dan SWEEP_PWM adalah nilai awal. Saat berjalan, ESP bridge bisa
+// menggantinya lewat perintah CFG (lihat docs/OTA.md), jadi bisa diubah lewat update firmware ESP.
 #define OBST_CM         22     // mode otomatis: benda di depan sedekat ini -> menghindar
 #define DIAG_CM         18     // sama, untuk sensor serong kiri/kanan depan
 #define SIDE_KEEP_CM    8      // mode otomatis: menjauh sedikit kalau samping sedekat ini
@@ -97,6 +119,7 @@ static const uint8_t US_ECHO[US_COUNT] = { A0, A1, A2, A3, A4, 13 };
 #define STEER_PWM       35     // selisih kecepatan kiri-kanan saat menjauhi dinding samping
 #define AVOID_PWM       130
 #define TURN_PWM        130
+// angka PWM di atas memakai skala 2 sel; dengan BAT_CELLS 4 yang dikirim ke L298N otomatis dibagi dua
 
 // ---- waktu ----
 #define DEADMAN_MS      600UL
@@ -111,11 +134,19 @@ static const uint8_t US_ECHO[US_COUNT] = { A0, A1, A2, A3, A4, 13 };
 #define TURN_MAX_MS     1000UL
 #define SWEEP_TURN_EVERY_MS 12000UL    // tiap sekian ms tanpa rintangan, belok acak supaya area lebih rata tersapu
 
+#if BAT_CELLS < 2 || BAT_CELLS > 4
+  #error "BAT_CELLS harus 2, 3, atau 4"
+#endif
+// sel penuh 4,2 V; setelah pembagi, A5 tidak boleh lebih dari 5 V
+#if HAS_BATTERY_SENSE && (BAT_CELLS * 420L * 100L / BAT_DIVIDER_X100 > 500L)
+  #error "Pembagi tegangan baterai terlalu kecil untuk BAT_CELLS ini: A5 bisa lebih dari 5 V. Lihat komentar BAT_DIVIDER_X100"
+#endif
+
 // ==================================================================
 //  State
 // ==================================================================
 enum Mode : uint8_t { MODE_MANUAL = 0, MODE_AUTO = 1 };
-enum State : uint8_t { ST_MANUAL, ST_SWEEP, ST_AVOID, ST_TURN, ST_FULL };
+enum State : uint8_t { ST_MANUAL, ST_SWEEP, ST_AVOID, ST_TURN, ST_FULL, ST_SENSOR };
 
 static Mode  mode = MODE_MANUAL;     // EcoBot menyala dalam mode manual (tidak langsung jalan sendiri)
 static State state = ST_MANUAL;
@@ -132,8 +163,19 @@ static int   usDist[US_COUNT];       // cm, -1 = tidak ada pantulan / di luar ja
 static uint8_t usLvl[US_COUNT];      // 0 kosong, 1 terdeteksi, 2 dekat
 static uint8_t usNext = 0;
 
+#if SENSOR_CHECK
+// 0 = baik, 1 = kabel Echo lepas (HIGH terus), 2 = sensor tidak menjawab (tidak ada pulsa)
+static uint8_t usErr[US_COUNT];
+static uint8_t usDeadCnt[US_COUNT];
+static unsigned long usLowAt[US_COUNT];   // terakhir kali pin Echo terbaca LOW
+#endif
+
 static int   binPct = 0;
 static int   binAcc16 = 0;           // binPct x 16, supaya penghalus tidak "macet" karena pembulatan
+
+// Jarak menghindar dan PWM mode otomatis yang bisa diubah saat berjalan lewat perintah CFG.
+static int   obstCm = OBST_CM, diagCm = DIAG_CM;
+static int   turnPwm = TURN_PWM, sweepPwm = SWEEP_PWM;
 
 static int   speedCap = DEFAULT_SPEED;
 static int   manualX = 0, manualY = 0;
@@ -173,7 +215,7 @@ static unsigned long lastRxMs = 0;
 // (diawali '{'), jadi pesan ini tidak pernah sampai ke dashboard.
 #define STR_(x) #x
 #define XSTR(x) STR_(x)
-enum Hint : uint8_t { H_NONE, H_AUTO, H_UNKNOWN, H_GUARD, H_FMT_MODE, H_FMT_DRV, H_FMT_SPD, H_FMT_BRUSH, H_FMT_LIFT };
+enum Hint : uint8_t { H_NONE, H_AUTO, H_UNKNOWN, H_GUARD, H_FMT_MODE, H_FMT_DRV, H_FMT_SPD, H_FMT_BRUSH, H_FMT_LIFT, H_FMT_CFG };
 static uint8_t lastHint = H_NONE;
 static unsigned long lastHintMs = 0;
 
@@ -215,15 +257,21 @@ static void hintGuard(unsigned long now) {
 static void printHelp() {
   Serial.print(F("# Perintah: GET, INFO, MODE A (otomatis), MODE M (manual), STOP,\n"
                  "#   DRV x y (x belok, y maju, -100..100), SPD 0..255 (batas kecepatan),\n"
-                 "#   BRUSH 0..100 (sapu), LIFT 0 (turunkan) / LIFT 1 (angkat). Huruf kecil juga boleh.\n"));
+                 "#   BRUSH 0..100 (sapu), LIFT 0 (turunkan) / LIFT 1 (angkat),\n"
+                 "#   CFG D depan serong (jarak menghindar, cm), CFG A putar maju (PWM otomatis). Huruf kecil juga boleh.\n"));
 }
 
 // ==================================================================
 //  Motor roda
 // ==================================================================
+// v: PWM rancangan 2 sel (-255..255). Yang benar-benar dikirim ke L298N disesuaikan dengan BAT_CELLS.
 static void driveSide(int v, uint8_t inA, uint8_t inB, uint8_t en) {
-  if (v > 0)      { digitalWrite(inA, HIGH); digitalWrite(inB, LOW);  analogWrite(en, v > 255 ? 255 : v); }
-  else if (v < 0) { digitalWrite(inA, LOW);  digitalWrite(inB, HIGH); analogWrite(en, -v > 255 ? 255 : -v); }
+  long a = v < 0 ? -(long)v : v;
+  if (a > 255) a = 255;
+  a = a * 2 / BAT_CELLS;
+  if (a > 255) a = 255;
+  if (v > 0)      { digitalWrite(inA, HIGH); digitalWrite(inB, LOW);  analogWrite(en, (int)a); }
+  else if (v < 0) { digitalWrite(inA, LOW);  digitalWrite(inB, HIGH); analogWrite(en, (int)a); }
   else            { digitalWrite(inA, LOW);  digitalWrite(inB, LOW);  analogWrite(en, 0); }
 }
 
@@ -268,7 +316,8 @@ static void brushSet(int pct) {
 
 static void brushWrite(int pct) {
 #if BRUSH_USE_PWM
-  analogWrite(PIN_BRUSH, (int)((long)pct * 255L / 100L));
+  // persen memakai skala 2 sel, sama seperti roda
+  analogWrite(PIN_BRUSH, (int)((long)pct * 255L * 2L / 100L / BAT_CELLS));
 #else
   bool on = pct > 0;
   digitalWrite(PIN_BRUSH, (on == (BRUSH_ACTIVE_HIGH != 0)) ? HIGH : LOW);
@@ -314,14 +363,24 @@ static void servoUpdate(unsigned long now) {
 // ==================================================================
 //  Ultrasonik
 // ==================================================================
+// hasil pemeriksaan pengukuran terakhir: 1 = sensor menjawab, 0 = tidak ada pulsa, -1 = tidak bisa dinilai
+static int8_t usAlive = -1;
+
 static int usMeasure(uint8_t i) {
-  uint8_t trig = US_TRIG[i];
+  uint8_t trig = US_TRIG[i], echo = US_ECHO[i];
+  bool ready = digitalRead(echo) == LOW;   // tidak sedang mengirim pulsa (pin yang kabelnya lepas: HIGH)
   digitalWrite(trig, LOW);
   delayMicroseconds(3);
   digitalWrite(trig, HIGH);
   delayMicroseconds(10);
   digitalWrite(trig, LOW);
-  unsigned long dur = pulseIn(US_ECHO[i], HIGH, US_TIMEOUT_US);
+  unsigned long dur = pulseIn(echo, HIGH, US_TIMEOUT_US);
+  // Sensor yang hidup selalu membalas dengan pulsa, juga saat tidak ada benda: pulsanya panjang dan
+  // masih HIGH saat pulseIn berhenti menunggu. Tidak ada pulsa sama sekali padahal tadi siap =
+  // sensor tidak menjawab. Kalau tadi belum siap (pulsa sebelumnya, atau sensor pasangan Trig yang
+  // sama baru dipicu), hasilnya tidak dinilai.
+  if (!ready) usAlive = -1;
+  else usAlive = (dur > 0 || digitalRead(echo) == HIGH) ? 1 : 0;
   if (dur == 0) return -1;
   long cm = (long)(dur / 58UL);
   if (cm < 2 || cm > 400) return -1;
@@ -349,11 +408,55 @@ static uint8_t usLevelOf(uint8_t i, uint8_t prev, int d) {
   return 0;
 }
 
-static void usStep() {
+#if SENSOR_CHECK
+static const __FlashStringHelper* usName(uint8_t i) {
+  switch (i) {
+    case US_DEPAN:   return F("Depan");
+    case US_KIDEPAN: return F("Kiri-depan");
+    case US_KADEPAN: return F("Kanan-depan");
+    case US_KIRI:    return F("Kiri");
+    case US_KANAN:   return F("Kanan");
+    default:         return F("Wadah");
+  }
+}
+
+static void usCheck(uint8_t i, unsigned long now) {
+  // Pin Echo sensor yang tersambung selalu kembali LOW di antara pengukuran
+  for (uint8_t k = 0; k < US_COUNT; k++) if (digitalRead(US_ECHO[k]) == LOW) usLowAt[k] = now;
+  uint8_t e = 0;
+  if (now - usLowAt[i] >= US_STUCK_MS) {
+    e = 1;
+  } else {
+    if (usAlive == 1) usDeadCnt[i] = 0;
+    else if (usAlive == 0 && usDeadCnt[i] < US_DEAD_COUNT) usDeadCnt[i]++;
+    if (usDeadCnt[i] >= US_DEAD_COUNT) e = 2;
+  }
+  if (e == usErr[i]) return;
+  usErr[i] = e;
+  Serial.print(F("# Sensor ")); Serial.print(usName(i));
+  if (e == 1)      Serial.print(F(": pin Echo HIGH terus. Kabel Echo lepas?\n"));
+  else if (e == 2) Serial.print(F(" tidak menjawab. Cek kabel VCC, GND, dan Trig.\n"));
+  else             Serial.print(F(" tersambung lagi.\n"));
+}
+
+// sensor depan yang bermasalah membuat robot buta ke arah jalannya
+static bool frontSensorErr() {
+  return usErr[US_DEPAN] || usErr[US_KIDEPAN] || usErr[US_KADEPAN];
+}
+#else
+static bool frontSensorErr() { return false; }
+#endif
+
+static void usStep(unsigned long now) {
   uint8_t i = usNext;
   usNext = (usNext + 1) % US_COUNT;
 
   int d = usMeasure(i);
+#if SENSOR_CHECK
+  usCheck(i, now);
+#else
+  (void)now;
+#endif
   usHist[i][usHistPos[i]] = d;
   usHistPos[i] = (usHistPos[i] + 1) % 3;
   int med = median3(usHist[i][0], usHist[i][1], usHist[i][2]);
@@ -398,6 +501,14 @@ static int8_t freerSide() {
 }
 
 static void autoStep(unsigned long now) {
+  if (frontSensorErr()) {
+    // sensor depan lepas: robot tidak bisa melihat rintangan, jadi berhenti sampai tersambung lagi
+    if (state != ST_SENSOR) enterState(ST_SENSOR, now);
+    motorStop(); brushSet(0); liftTo(true);
+    return;
+  }
+  if (state == ST_SENSOR) { enterState(ST_SWEEP, now); lastTurn = now; }
+
   if (binPct >= BIN_FULL_PCT) {
     if (state != ST_FULL) enterState(ST_FULL, now);
     motorStop(); brushSet(0); liftTo(true);
@@ -405,7 +516,7 @@ static void autoStep(unsigned long now) {
   }
   if (state == ST_FULL) { enterState(ST_SWEEP, now); lastTurn = now; }
 
-  bool blocked = validWithin(US_DEPAN, OBST_CM) || validWithin(US_KIDEPAN, DIAG_CM) || validWithin(US_KADEPAN, DIAG_CM);
+  bool blocked = validWithin(US_DEPAN, obstCm) || validWithin(US_KIDEPAN, diagCm) || validWithin(US_KADEPAN, diagCm);
 
   switch (state) {
     case ST_SWEEP: {
@@ -413,7 +524,7 @@ static void autoStep(unsigned long now) {
       if (abs(liftCur - LIFT_DOWN_ANGLE) <= 10) brushSet(BRUSH_AUTO_PCT);  // sapu baru berputar setelah benar-benar turun
       if (blocked) { motorStop(); startTurn(freerSide(), now, ST_AVOID); break; }
       if (now - lastTurn > SWEEP_TURN_EVERY_MS) { startTurn(random(0, 2) ? 1 : -1, now, ST_TURN); break; }
-      int l = SWEEP_PWM, r = SWEEP_PWM;
+      int l = sweepPwm, r = sweepPwm;
       if (validWithin(US_KIRI, SIDE_KEEP_CM))       r -= STEER_PWM;        // terlalu dekat dinding kiri: belok kanan sedikit
       else if (validWithin(US_KANAN, SIDE_KEEP_CM)) l -= STEER_PWM;
       motorSet(l, r);
@@ -426,7 +537,7 @@ static void autoStep(unsigned long now) {
       brushSet(0);
       liftTo(true);
       if (t < AVOID_BACK_MS) motorSet(-AVOID_PWM, -AVOID_PWM);
-      else if (t < AVOID_BACK_MS + turnMs) motorSet(turnDir * TURN_PWM, -turnDir * TURN_PWM);
+      else if (t < AVOID_BACK_MS + turnMs) motorSet(turnDir * turnPwm, -turnDir * turnPwm);
       else { enterState(ST_SWEEP, now); lastTurn = now; }
       break;
     }
@@ -434,7 +545,7 @@ static void autoStep(unsigned long now) {
     case ST_TURN: {
       // belok acak tanpa rintangan: sapu tetap menyapu
       if (blocked) { motorStop(); startTurn(freerSide(), now, ST_AVOID); break; }
-      if (now - stateSince < turnMs) motorSet(turnDir * TURN_PWM, -turnDir * TURN_PWM);
+      if (now - stateSince < turnMs) motorSet(turnDir * turnPwm, -turnDir * turnPwm);
       else { enterState(ST_SWEEP, now); lastTurn = now; }
       break;
     }
@@ -483,6 +594,7 @@ static const char* stateName() {
     case ST_AVOID: return "avoid";
     case ST_TURN:  return "turn";
     case ST_FULL:  return "full";
+    case ST_SENSOR: return "sensor";
     default:       return "manual";
   }
 }
@@ -495,12 +607,16 @@ static void sendInfo() {
   Serial.print(NEAR_CM);         Serial.print(F(",\"side\":"));
   Serial.print(SIDE_NEAR_CM);    Serial.print(F(",\"binE\":"));
   Serial.print(BIN_EMPTY_CM);    Serial.print(F(",\"binF\":"));
-  Serial.print(BIN_FULL_CM);     Serial.print(F("},\"lift\":{\"up\":"));
+  Serial.print(BIN_FULL_CM);     Serial.print(F(",\"obst\":"));
+  Serial.print(obstCm);          Serial.print(F(",\"diag\":"));
+  Serial.print(diagCm);          Serial.print(F("},\"lift\":{\"up\":"));
   Serial.print(LIFT_UP_ANGLE);   Serial.print(F(",\"down\":"));
   Serial.print(LIFT_DOWN_ANGLE); Serial.print(F("},\"brush\":{\"pwm\":"));
   Serial.print(BRUSH_USE_PWM);   Serial.print(F(",\"min\":"));
   Serial.print(BRUSH_MIN_PCT);   Serial.print(F(",\"auto\":"));
-  Serial.print(BRUSH_AUTO_PCT);  Serial.print(F("}}\n"));
+  Serial.print(BRUSH_AUTO_PCT);  Serial.print(F("},\"spd\":{\"turn\":"));
+  Serial.print(turnPwm);         Serial.print(F(",\"fwd\":"));
+  Serial.print(sweepPwm);        Serial.print(F("},\"cfg\":1}\n"));
 }
 
 static void sendTelemetry(unsigned long now) {
@@ -511,7 +627,13 @@ static void sendTelemetry(unsigned long now) {
   for (uint8_t i = 0; i < US_COUNT; i++) { if (i) Serial.print(','); Serial.print(usDist[i]); }
   Serial.print(F("],\"l\":["));
   for (uint8_t i = 0; i < US_COUNT; i++) { if (i) Serial.print(','); Serial.print((int)usLvl[i]); }
-  Serial.print(F("],\"bin\":"));             Serial.print(binPct);
+  Serial.print(']');
+#if SENSOR_CHECK
+  Serial.print(F(",\"ue\":["));
+  for (uint8_t i = 0; i < US_COUNT; i++) { if (i) Serial.print(','); Serial.print((int)usErr[i]); }
+  Serial.print(']');
+#endif
+  Serial.print(F(",\"bin\":"));             Serial.print(binPct);
   Serial.print(F(",\"br\":"));               Serial.print(brushOut);
   Serial.print(F(",\"bt\":"));               Serial.print(brushTarget);
   Serial.print(F(",\"lf\":"));               Serial.print(liftUpCmd ? 1 : 0);
@@ -535,6 +657,7 @@ static void handleLine(char* line, unsigned long now) {
   if (!cmd) return;
   char* a1 = strtok(NULL, " ");
   char* a2 = strtok(NULL, " ");
+  char* a3 = strtok(NULL, " ");
   bool manual = (mode == MODE_MANUAL);
 
   if (!strcmp(cmd, "GET"))  { sendTelemetry(now); return; }
@@ -584,6 +707,30 @@ static void handleLine(char* line, unsigned long now) {
     sendTelemetry(now);
     return;
   }
+  if (!strcmp(cmd, "CFG")) {
+    // CFG D <depan> <serong> : jarak menghindar mode otomatis (cm)
+    // CFG A <putar> <maju>   : PWM mode otomatis (berputar menghindar, maju menyapu)
+    if (!a1 || !a2 || !a3) { hintFormat(H_FMT_CFG, F("CFG D 22 18 (jarak menghindar, cm), CFG A 130 110 (PWM otomatis)"), now); return; }
+    long v1 = atol(a2), v2 = atol(a3);
+    bool ok = true;
+    if (a1[0] == 'D' && !a1[1]) {
+      ok = v1 >= 5 && v1 <= 100 && v2 >= 5 && v2 <= 100;
+      if (ok) { obstCm = (int)v1; diagCm = (int)v2; }
+    } else if (a1[0] == 'A' && !a1[1]) {
+      ok = v1 >= 0 && v1 <= 255 && v2 >= 0 && v2 <= 255;
+      if (ok) { turnPwm = (int)v1; sweepPwm = (int)v2; }
+    } else {
+      hintFormat(H_FMT_CFG, F("CFG D 22 18 (jarak menghindar, cm), CFG A 130 110 (PWM otomatis)"), now);
+      return;
+    }
+    if (!ok) {
+      if (hintOk(H_FMT_CFG, now))
+        Serial.print(F("# CFG ditolak: jarak 5..100 cm, PWM 0..255.\n"));
+      return;
+    }
+    sendInfo();                          // ESP dan dashboard melihat nilai baru
+    return;
+  }
   if (hintOk(H_UNKNOWN, now)) {
     Serial.print(F("# Perintah tidak dikenal: ")); Serial.print(cmd);
     Serial.print(F(". Ketik HELP untuk daftar perintah.\n"));
@@ -626,6 +773,9 @@ void setup() {
     digitalWrite(US_TRIG[i], LOW);
     pinMode(US_ECHO[i], INPUT_PULLUP);   // sensor yang belum dipasang terbaca "tidak ada pantulan", bukan angka acak
     usDist[i] = -1;
+#if SENSOR_CHECK
+    usLowAt[i] = millis();
+#endif
     for (uint8_t k = 0; k < 3; k++) usHist[i][k] = -1;
   }
 
@@ -638,7 +788,7 @@ void setup() {
   unsigned long now = millis();
   setMode(MODE_MANUAL, now);
   // beberapa putaran awal supaya riwayat median terisi sebelum dipakai
-  for (uint8_t i = 0; i < US_COUNT * 3; i++) usStep();
+  for (uint8_t i = 0; i < US_COUNT * 3; i++) usStep(millis());
   lastBrushAcc = millis();
   sendInfo();
   Serial.print(F("# EcoBot " FW_VERSION " siap, mode MANUAL.\n"
@@ -652,7 +802,7 @@ void loop() {
 
   readSerial(now);
 
-  if (now - lastUs >= US_STEP_MS) { lastUs = now; usStep(); }
+  if (now - lastUs >= US_STEP_MS) { lastUs = now; usStep(now); }
 
 #if HAS_BATTERY_SENSE
   {

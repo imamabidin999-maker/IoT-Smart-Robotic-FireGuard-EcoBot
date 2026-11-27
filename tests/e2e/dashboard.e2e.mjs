@@ -1130,3 +1130,39 @@ test('fireguard WebSocket: kabel sensor lepas ditandai "Kabel lepas", ada banner
     });
   } finally { await srv.close(); }
 });
+
+test('ecobot WebSocket: sensor ultrasonik lepas ditandai, ada banner & log, mode otomatis berhenti lalu lanjut setelah dipasang lagi', async () => {
+  const p = ports();
+  const srv = mock.start({ robot: 'ecobot', ws: p.ws, cam: p.cam, mqttWs: 0, prefix: 'kopak', quiet: true });
+  try {
+    await run('ecobot', { cfg: mkCfg('ecobot', p), allow: NET_NOISE, label: 'ultrasonik lepas' }, async ({ page }) => {
+      await waitText(page, '#connText', /^Terhubung$/, 6000);
+      await page.click('#btnAuto'); await waitMode(page, 'A');
+      await waitText(page, '#robotState', /Menyapu/, 4000);
+
+      srv.sim.unplug(0, true);                                   // kabel Echo sensor Depan lepas
+      await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[0].dataset.status === 'err', null, { timeout: 4000 });
+      const card = page.locator('#sensorList .sensor-card').nth(0);
+      assert.equal(await card.locator('.sensor-status').textContent(), 'Kabel lepas');
+      assert.equal(await card.locator('.sensor-value').textContent(), '—');
+      await waitText(page, '#robotState', /Berhenti: sensor depan lepas/, 4000);
+      await waitText(page, '#brushText', /SENSOR DEPAN LEPAS/, 3000);
+      assert.match(await text(page, '#alertStack'), /SENSOR TIDAK TERSAMBUNG — Depan · Cek kabel Echo, Trig, VCC, dan GND · Mode otomatis berhenti/);
+      assert.match(await text(page, '#sensorWarn'), /Sensor Depan tidak tersambung \(kabel Echo lepas\?\)/);
+      await waitLog(page, /Sensor Depan tidak tersambung \(kabel Echo lepas\?\) — mode otomatis berhenti/);
+      await waitLog(page, /Menyapu otomatis berhenti: sensor depan tidak tersambung/);
+
+      srv.sim.unplug(4, true, 2);                                // sensor Kanan tidak menjawab
+      await page.waitForFunction(() => document.querySelectorAll('#sensorList .sensor-card')[4].dataset.status === 'err', null, { timeout: 4000 });
+      assert.equal(await page.locator('#sensorList .sensor-card').nth(4).locator('.sensor-status').textContent(), 'Tidak menjawab');
+      await waitLog(page, /Sensor Kanan tidak menjawab \(cek kabel VCC, GND, dan Trig\)/);
+
+      srv.sim.unplug(0, false); srv.sim.unplug(4, false);
+      await page.waitForFunction(() => [...document.querySelectorAll('#sensorList .sensor-card')].every((c) => c.dataset.status !== 'err'), null, { timeout: 4000 });
+      await waitLog(page, /Sensor Depan tersambung lagi/);
+      await waitText(page, '#robotState', /Menyapu/, 4000);
+      await page.waitForFunction(() => !document.querySelector('#alertStack .alert-banner[data-level="warn"]'), null, { timeout: 3000 });
+      assert.equal(await page.locator('#sensorWarn').isHidden(), true);
+    });
+  } finally { await srv.close(); }
+});

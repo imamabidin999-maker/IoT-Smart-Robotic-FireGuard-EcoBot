@@ -411,8 +411,8 @@ Uno GND ───────────────── pin G papan ekstensi
 
 ## 9. ESP32-CAM
 
-1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. `CAM_HOSTNAME` sudah `"fireguard-cam"`, dan kamera
-   otomatis mencoba WiFi milik ESP32 (`fireguard-robot`). Kalau ESP32 memakai WiFi sendiri, tidak ada yang
+1. Buka `firmware/esp32cam_stream/esp32cam_stream.ino`. Nama kamera sudah `fireguard-cam` (`ROBOT_NAME`
+   bawaannya `"fireguard"`), dan kamera otomatis mencoba WiFi milik ESP32 (`fireguard-robot`). Kalau ESP32 memakai WiFi sendiri, tidak ada yang
    perlu diubah. Kalau ESP32 memakai WiFi rumah/hotspot, atau password WiFi robot sudah diganti, buat tab
    `secrets.h` dari `secrets.example.h` (sama seperti ESP32) dan isi `WIFI_SSID`, `WIFI_PASS`, `AP_PASS`.
 2. Board: **AI Thinker ESP32-CAM**, Partition Scheme **Minimal SPIFFS (1.9MB APP with OTA)** kalau kamera mau
@@ -497,6 +497,8 @@ Lalu di lantai:
 
 | Gejala | Yang dicek |
 |---|---|
+| Uno, relay, atau sensor tidak menyala sama sekali, padahal ESP32 dan MQ-2 menyala | kabel V dan G tertukar, kabel 5V Uno belum dipasang lagi setelah upload, atau memakai baris di sisi kanan papan ekstensi yang urutan G-V-S-nya terbalik dari sisi kiri. Pindahkan kabel daya ke sisi kiri |
+| Buck berbunyi "titit", angka OUT turun terus, WiFi robot hilang | baterai habis. Cek angka IN di buck: di bawah ±13,2 V (4 sel seri) harus diisi |
 | Roda tidak bergerak sama sekali | jalankan `tes_motor` (langkah 3, nomor 6) dan cocokkan hasilnya dengan tabel di sana |
 | Serial Monitor menampilkan huruf acak | baud belum 57600 |
 | Muncul `# Diabaikan: robot sedang mode OTOMATIS` | robot sudah dipindah ke Otomatis; ketik `MODE M` dulu |

@@ -12,7 +12,8 @@
 //   QW <pin>             cetak analogWrite (PWM) terakhir di pin
 //   QS <pin>             cetak sudut servo terakhir di pin
 //   QM <pin>             cetak mode pin terakhir (0 INPUT, 1 OUTPUT, 2 INPUT_PULLUP)
-//   FL <pin> <0|1>       1 = kabel pin analog itu lepas (pin mengambang)
+//   FL <pin> <0|1>       1 = kabel pin itu lepas (pin mengambang; pin ECHO dengan pull-up terbaca HIGH)
+//   UD <pin> <0|1>       1 = sensor ultrasonik di pin ECHO itu tidak menjawab (tanpa daya / Trig lepas)
 //   Keluaran Serial Uno muncul sebagai "OUT <baris>".
 
 #include "Arduino.h"
@@ -26,6 +27,8 @@ int g_servo_angle[64] = {0};
 int g_pin_mode[64] = {0};
 int g_float[64] = {0};
 int g_charge[64] = {0};
+int g_us_dead[64] = {0};
+unsigned long g_busy_until[64] = {0};
 unsigned long g_rand_state = 12345;
 SerialShim Serial;
 
@@ -69,6 +72,9 @@ int main() {
     } else if (cmd == "FL") {
       int pin, v;
       if (sscanf(arg, "%d %d", &pin, &v) == 2) g_float[pin] = v;
+    } else if (cmd == "UD") {
+      int pin, v;
+      if (sscanf(arg, "%d %d", &pin, &v) == 2) g_us_dead[pin] = v;
     } else if (cmd == "QP") {
       printf("RES %d\n", g_pin_state[atoi(arg)]);
     } else if (cmd == "QW") {

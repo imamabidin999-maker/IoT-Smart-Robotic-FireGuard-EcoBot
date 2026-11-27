@@ -25,7 +25,11 @@
   const DEFAULT_PINS = ['A0', 'A1', 'A2', 'A3', 'A4', 'D13'];
   const STATE_TEXT = {
     sweep: 'Menyapu', avoid: 'Menghindar', turn: 'Berbelok', full: 'Wadah penuh', manual: 'Kendali manual',
+    sensor: 'Berhenti: sensor depan lepas',
   };
+  // status sensor dari Uno (ue): 1 = kabel Echo lepas, 2 = sensor tidak menjawab (VCC/GND/Trig)
+  const UE_TEXT = { 1: 'Kabel lepas', 2: 'Tidak menjawab' };
+  const US_NAMES = ['Depan', 'Kiri-depan', 'Kanan-depan', 'Kiri', 'Kanan', 'Wadah'];
   const BIN_WARN = 70;
   const BIN_FULL = 95;
   const SERIES = [
@@ -35,7 +39,7 @@
   ];
 
   const el = {
-    sensorList: $('sensorList'),
+    sensorList: $('sensorList'), sensorWarn: $('sensorWarn'),
     brushBox: $('brushBox'), brushText: $('brushText'), brushLabel: $('brushLabel'), liftLabel: $('liftLabel'),
     brushBtn: $('brushBtn'), liftBtn: $('liftBtn'),
     brushSpeed: $('brushSpeed'), brushSpeedValue: $('brushSpeedValue'), brushSpeedRow: $('brushSpeedRow'), brushRelayNote: $('brushRelayNote'),
@@ -200,7 +204,23 @@
 
   // ---------- kejadian -> log & banner ----------
 
+  /** sensor yang dilaporkan Uno bermasalah: [{ i, name, code }] */
+  function unplugged(tel) {
+    const out = [];
+    (tel.ue || []).forEach((v, i) => { if (v === 1 || v === 2) out.push({ i, name: `Sensor ${US_NAMES[i] || `#${i + 1}`}`, code: v }); });
+    return out;
+  }
+
   function logEvents(tel, prev, d) {
+    const lostNow = unplugged(tel), lostPrev = prev ? unplugged(prev) : [];
+    const key = (x) => `${x.i}:${x.code}`;
+    lostNow.filter((x) => !lostPrev.some((y) => key(y) === key(x))).forEach((x) => {
+      d.log.add('warn', x.code === 1
+        ? `${x.name} tidak tersambung (kabel Echo lepas?)${x.i <= 2 ? ' — mode otomatis berhenti' : ''}`
+        : `${x.name} tidak menjawab (cek kabel VCC, GND, dan Trig)${x.i <= 2 ? ' — mode otomatis berhenti' : ''}`);
+    });
+    lostPrev.filter((x) => !lostNow.some((y) => y.i === x.i)).forEach((x) => d.log.add('ok', `${x.name} tersambung lagi`));
+
     const bin = tel.bin | 0, pbin = prev && typeof prev.bin === 'number' ? prev.bin : bin;
     if (bin >= BIN_FULL && pbin < BIN_FULL) d.log.add('danger', `Wadah penuh (${bin}%)${tel.m === 'A' ? ' — menyapu otomatis dihentikan' : ''}`);
     else if (bin >= BIN_WARN && pbin < BIN_WARN) d.log.add('warn', `Wadah terisi ${bin}%`);
@@ -209,6 +229,7 @@
     if (!prev) return;
 
     if (tel.m === 'A') {
+      if (tel.st === 'sensor' && prev.st !== 'sensor') d.log.add('danger', 'Menyapu otomatis berhenti: sensor depan tidak tersambung');
       if (tel.st === 'sweep' && prev.st !== 'sweep' && prev.st !== 'avoid' && prev.st !== 'turn') d.log.add('accent', 'Mulai menyapu otomatis');
       if (tel.st === 'avoid' && prev.st !== 'avoid') {
         const front = [0, 1, 2].map((i) => tel.d[i]).filter((v) => v >= 0);
@@ -244,9 +265,13 @@
       let status = 'off', value = '—', text = 'Offline';
       if (alive && tel && Array.isArray(tel.d) && typeof tel.d[i] === 'number') {
         const lv = K.clamp((tel.l && tel.l[i]) | 0, 0, 2);
-        status = LEVEL_KEY[lv];
-        text = LEVEL_TEXT[lv];
-        value = tel.d[i] >= 0 ? `${tel.d[i]} cm` : '—';
+        const ue = tel.ue ? tel.ue[i] | 0 : 0;
+        if (UE_TEXT[ue]) { status = 'err'; text = UE_TEXT[ue]; }      // tidak ada pantulan karena kabel, bukan ruangan kosong
+        else {
+          status = LEVEL_KEY[lv];
+          text = LEVEL_TEXT[lv];
+          value = tel.d[i] >= 0 ? `${tel.d[i]} cm` : '—';
+        }
       }
       setAttr(c.root, 'data-status', status);
       setText(c.value, value);
@@ -259,7 +284,8 @@
     const bt = alive && tel ? tel.bt | 0 : 0;
     let bStatus = 'off', bText = 'OFFLINE';
     if (alive && tel) {
-      if (tel.st === 'full') { bStatus = 'danger'; bText = 'WADAH PENUH'; }
+      if (tel.st === 'sensor') { bStatus = 'danger'; bText = 'SENSOR DEPAN LEPAS'; }
+      else if (tel.st === 'full') { bStatus = 'danger'; bText = 'WADAH PENUH'; }
       else if (tel.st === 'avoid') { bStatus = 'warn'; bText = 'MENGHINDAR RINTANGAN'; }
       else if (br > 0) { bStatus = 'ok'; bText = tel.m === 'A' ? 'MENYAPU' : 'SAPU BERPUTAR'; }
       else if (tel.m === 'A') { bStatus = 'ok'; bText = 'MENYIAPKAN SAPU'; }
@@ -287,8 +313,9 @@
     el.brushSpeedRow.hidden = !brushPwm;
     el.brushRelayNote.hidden = brushPwm;
 
-    // wadah
-    if (alive && tel && typeof tel.bin === 'number') {
+    // wadah (sensor Wadah yang lepas tidak bisa mengukur isi)
+    const binLost = !!(alive && tel && tel.ue && UE_TEXT[tel.ue[5] | 0]);
+    if (alive && tel && typeof tel.bin === 'number' && !binLost) {
       const pct = K.clamp(tel.bin, 0, 100);
       const color = pct >= BIN_FULL ? 'var(--danger)' : (pct >= BIN_WARN ? 'var(--warn)' : 'var(--accent)');
       setText(el.binValue, `${pct}%`);
@@ -305,6 +332,19 @@
       setText(el.sweepTime, '—');
     }
     setText(el.robotState, alive && tel ? (STATE_TEXT[tel.st] || String(tel.st || '—')) : '—');
+
+    // sensor yang kabelnya lepas: banner, catatan di kartu sensor
+    const lost = alive && tel ? unplugged(tel) : [];
+    const frontLost = lost.some((x) => x.i <= 2);
+    d.setAlert('sensor', lost.length ? 'warn' : null, lost.length
+      ? `SENSOR TIDAK TERSAMBUNG — ${lost.map((x) => x.name.replace('Sensor ', '')).join(', ')} · Cek kabel Echo, Trig, VCC, dan GND${frontLost ? ' · Mode otomatis berhenti' : ''}`
+      : null);
+    const warn = lost.length
+      ? `${lost.map((x) => `${x.name} ${x.code === 1 ? 'tidak tersambung (kabel Echo lepas?)' : 'tidak menjawab (cek VCC, GND, Trig)'}`).join('. ')}.`
+        + (frontLost ? ' Robot tidak bisa melihat rintangan di depan, jadi mode otomatis berhenti sampai sensornya tersambung lagi.' : '')
+      : '';
+    el.sensorWarn.hidden = !warn;
+    setText(el.sensorWarn, warn);
 
     // banner wadah hampir penuh
     const binFull = alive && tel && (tel.bin | 0) >= BIN_FULL;

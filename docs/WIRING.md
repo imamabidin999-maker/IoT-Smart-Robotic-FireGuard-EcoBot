@@ -18,10 +18,12 @@ kapasitasnya dua kali lipat. **Jangan 4 seri** (14,8 V, penuh 16,8 V): terlalu t
 Uno, dan jack DC papan ekstensi ESP32 yang umumnya maksimal 16 V. Sel yang diparalel harus sejenis dan isinya
 sama penuh sebelum disatukan.
 
-Pengecualian khusus FireGuard: 4 seri boleh dipakai kalau **semua** modul 5 V (termasuk Uno lewat pin 5V dan
-pompa) mengambil daya dari buck, VIN Uno dan jack DC papan ekstensi dibiarkan kosong, dan `BAT_CELLS` di
-`fireguard_uno.ino` serta `tes_motor.ino` bernilai `4` (bawaan sketch; untuk 2 sel seri ubah jadi `2`). Firmware lalu membagi dua PWM motor, jadi motor TT tetap
-kebagian tegangan yang sama seperti dengan 2 sel. Firmware EcoBot belum punya pengaturan ini.
+Pengecualian untuk robot tim (FireGuard dan EcoBot): 4 seri boleh dipakai kalau **semua** modul 5 V (termasuk
+Uno lewat pin 5V, pompa FireGuard, dan motor sapu EcoBot lewat COM relay) mengambil daya dari buck, VIN Uno dan
+jack DC papan ekstensi dibiarkan kosong, dan `BAT_CELLS` di `fireguard_uno.ino` / `ecobot_uno.ino` serta
+`tes_motor.ino` bernilai `4` (bawaan sketch; untuk 2 sel seri ubah jadi `2`). Firmware lalu membagi dua PWM
+motor, jadi motor TT tetap kebagian tegangan yang sama seperti dengan 2 sel. Urutan rakitnya ada di
+[RAKIT-FIREGUARD.md](RAKIT-FIREGUARD.md) dan [RAKIT-ECOBOT.md](RAKIT-ECOBOT.md) langkah 2.
 
 ```
 Baterai 2S (7,4 V) ──► saklar ──┬─► L298N terminal +12V  (motor roda)
@@ -165,22 +167,24 @@ saklar elektronik. Ketiganya didukung firmware:
 
 | Pilihan | Kecepatan sapu | Pengaturan di sketch | Catatan |
 |---|---|---|---|
-| **Modul relay 1 kanal 5 V** (dipakai di panduan rakit) | nyala/mati saja | `BRUSH_USE_PWM 0`, `BRUSH_ACTIVE_HIGH 0` kalau relay aktif-LOW | paling mudah, tanpa solder komponen kecil |
-| Transistor TIP120 / TIP122 + resistor 1 kΩ | bisa diatur | biarkan `BRUSH_USE_PWM 1` | murah, perlu sedikit solder/breadboard, memakan ±1–1,5 V |
-| Modul MOSFET (D4184 / AOD4184) | bisa diatur | biarkan `BRUSH_USE_PWM 1` | paling efisien |
+| **Modul relay 1 kanal 5 V** (robot tim, dipakai di panduan rakit) | nyala/mati saja | `BRUSH_USE_PWM 0`, `BRUSH_ACTIVE_HIGH 0` untuk relay aktif-LOW (bawaan sketch) | paling mudah, tanpa solder komponen kecil |
+| Transistor TIP120 / TIP122 + resistor 1 kΩ | bisa diatur | ubah `BRUSH_USE_PWM` jadi `1` | murah, perlu sedikit solder/breadboard, memakan ±1–1,5 V |
+| Modul MOSFET (D4184 / AOD4184) | bisa diatur | ubah `BRUSH_USE_PWM` jadi `1` | paling efisien |
 
 Apa pun pilihannya, pasang **dioda flyback** (1N4007 atau 1N5819) melintang di jalur motor sapu, dengan
 garis/katoda ke sisi +. Pasang di terminal tempat kabel motor masuk (bukan di badan motor), supaya kabel motor
 boleh ditukar untuk membalik arah putar tanpa ikut membalik dioda. Langkah lengkap relay dan TIP120 ada di
 [RAKIT-ECOBOT.md](RAKIT-ECOBOT.md) langkah 4.
 
-**Relay:** VCC ← 5 V buck, GND ← GND bersama, IN ← D3, COM ← baterai (+), NO → motor (+), motor (−) → GND.
-Motor mendapat tegangan baterai penuh (7,4–8,4 V); motor TT masih tahan tapi lebih kencang dan hangat. Dua
-dioda 1N4007 seri di jalur + menurunkan ±1,4 V kalau perlu. Slider kecepatan sapu otomatis disembunyikan di
-dashboard.
+**Relay:** VCC ← 5 V (pin V papan ekstensi atau buck), GND ← GND bersama, IN ← D3, NO → motor (+), motor (−) → GND.
+COM diambil dari **OUT+ buck (5 V)** pada baterai 4 seri (robot tim): 14,8 V langsung dari baterai akan membakar
+motor 3–6 V. Dengan baterai 2 seri, COM boleh dari baterai (+): motor kebagian 7,4–8,4 V, masih tahan tapi lebih
+kencang dan hangat (dua dioda 1N4007 seri di jalur + menurunkan ±1,4 V kalau perlu). Slider kecepatan sapu
+otomatis disembunyikan di dashboard.
 
 **TIP120:** D3 → resistor 1 kΩ → kaki B. Kaki E → GND bersama. Kaki C → motor (−). Motor (+) → baterai (+).
-Urutan kaki dilihat dari sisi bertulisan: B, C, E. Sirip logamnya tersambung ke C.
+Urutan kaki dilihat dari sisi bertulisan: B, C, E. Sirip logamnya tersambung ke C. Dengan baterai 4 seri dan
+`BAT_CELLS 4`, firmware membagi dua PWM sapu supaya rata-rata tegangannya tetap seperti rancangan 2 sel.
 
 **Modul MOSFET:** modul ini juga tidak cukup disambung ke Uno saja; ada tiga sisi yang perlu disambung.
 
@@ -228,8 +232,18 @@ Tidak ada sensor belakang, jadi saat menghindar robot hanya mundur sebentar (`AV
 Di mode manual, gerak maju ditahan kalau ada benda ≤ 6 cm di depan atau serong depan. Gerak mundur tidak
 dijaga sensor, jadi hati-hati.
 
+### Pemeriksaan kabel sensor
+
+Sensor ultrasonik yang kabelnya lepas terbaca "tidak ada benda", sama seperti ruangan kosong. Karena itu Uno
+(EcoBot 2.2.0) memeriksa tiap sensor terus-menerus: pin Echo memakai pull-up, jadi kabel Echo yang lepas
+terbaca HIGH terus, sedangkan sensor yang hidup selalu membalas setiap dipicu (juga saat tidak ada benda).
+Hasilnya dikirim di telemetri `ue` (0 baik, 1 kabel Echo lepas, 2 tidak menjawab) dan tampil di dashboard.
+Sensor tanpa daya atau dengan kabel Trig lepas tidak pernah membalas, jadi ikut tertangkap sebagai `2`.
+
 ### Cara kerja mode otomatis
 
+0. Salah satu sensor depan (Depan, Kiri-depan, Kanan-depan) bermasalah: robot berhenti, sapu mati dan
+   terangkat, status `sensor`. Lanjut sendiri setelah sensornya tersambung lagi.
 1. Sapu turun, lalu mulai berputar 70%.
 2. Robot maju pelan sambil menyapu, dan menjauh sedikit kalau terlalu dekat dinding samping.
 3. Ada rintangan di depan atau serong depan: sapu berhenti dan terangkat, robot mundur sebentar, lalu
